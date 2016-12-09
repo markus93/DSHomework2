@@ -58,7 +58,7 @@ class RpcClient(object):
 
 
 def callback(ch, method, properties, body):
-    print("Server name: " + body)
+    print("Session info: " + body)
 
 
 def client_main(args):
@@ -73,38 +73,70 @@ def client_main(args):
     result = channel.queue_declare(exclusive=True)
     queue_name = result.method.queue
 
+    # channel.queue_bind(exchange='topic_server',
+    #                    queue=queue_name,
+    #                    routing_key='*.info')
+    #
+    # channel.basic_consume(callback,
+    #                       queue=queue_name,
+    #                       no_ack=True)
+
+    # TODO use *.info to get game server names, which is also used in order to use right RPC queues
+
+    server_name = "test"
+
     channel.queue_bind(exchange='topic_server',
                        queue=queue_name,
-                       routing_key='*.info')
+                       routing_key='%s.sessions.info' % server_name)  # basic info about all sessions (not in game info)
 
     channel.basic_consume(callback,
                           queue=queue_name,
                           no_ack=True)
 
-    #Rpc method tests
+    # RPC METHODS TEST
+
     # Connect user to server
     rpc = RpcClient(args)
     response = rpc.call('test_rpc_connect', **{'user': "test_user"})
+    print "Connect to server: " + str(response)
+    # gives back initial list of game sessions on server (sessions)
+    # use sessions info to fill list with current info about game sessions and
+    # start listening to new changes to sessions
 
+    # create game session
+    response = rpc.call('test_rpc_create_session', **{'user': 'test_user', 'sname': 'test_session', 'player_count': 4})
+    print "Create game: " + str(response)
+
+    # new connection, join to session
+    rpc.call('test_rpc_connect', **{'user': "test_user2"})
+    response = rpc.call('test_rpc_join_session', **{'user': "test_user2", 'sname': 'test_session'})
+    print "Join session: " + str(response)
+
+    #send ship placement
+    response = rpc.call('test_rpc_send_ship_placement', **{'user': "test_user2", 'sname': 'test_session',
+                                                           'coords': [[0,0], [0,1], [0,2], [3,3]]})
+    response = rpc.call('test_rpc_send_ship_placement', **{'user': "test_user2", 'sname': 'test_session',
+                                                           'coords': [[0, 0], [0, 1], [0, 2], [3, 3]]})
+    print "Ships placed: " + str(response)
+
+    # toggle ready state of player
+    response = rpc.call('test_rpc_ready', **{'user': "test_user2", 'sname': 'test_session'})
     print response
-    err = response['err']
+    #response = rpc.call('test_rpc_ready', **{'user': "test_user2", 'sname': 'test_session'})
+    #print response
 
-    if err == "":
-        sessions = response['sessions']  # initial list of game sessions on server
-        print sessions
-    else:
-        print err
+    response = rpc.call('test_rpc_start_game', **{'user': "test_user", 'sname': 'test_session'})
+    print response
 
-    rpc = RpcClient(args)
+    # leave from session
+    response = rpc.call('test_rpc_leave_session', **{'user': "test_user", 'sname': 'test_session'})
+    response = rpc.call('test_rpc_leave_session', **{'user': "test_user2", 'sname': 'test_session'})
+    print "Leave from session" + str(response)
+
+    # leave from server
     response = rpc.call('test_rpc_disconnect', **{'user': "test_user"})
-
-    print response
-    err = response['err']
-
-    if err == "":
-        print "Successfully disconnected from server"
-    else:
-        print err
+    response = rpc.call('test_rpc_disconnect', **{'user': "test_user2"})
+    print "Disconnect: " + str(response)
 
     channel.start_consuming()
 

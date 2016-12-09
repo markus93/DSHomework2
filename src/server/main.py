@@ -7,7 +7,7 @@ import json
 from common import *
 from threading import Thread
 from gamesession import *
-from rpc_requests import *
+import rpc_requests
 
 
 # Info-------------------------------------------------------------------------
@@ -26,6 +26,7 @@ def __info():
 def server_main(args):
 
     server_name = args.name  # TODO server name should be unique
+    rpc_requests.SERVER_NAME = server_name  # add server name also to this variable
 
     connection = pika.BlockingConnection(pika.ConnectionParameters(  # TODO check if connection available
         host=args.host, port=args.port))
@@ -35,11 +36,24 @@ def server_main(args):
     # Create queues for rpc
     channel.queue_declare(queue='%s_rpc_connect' % server_name)
     channel.queue_declare(queue='%s_rpc_disconnect' % server_name)
+    channel.queue_declare(queue='%s_rpc_create_session' % server_name)
+    channel.queue_declare(queue='%s_rpc_join_session' % server_name)
+    channel.queue_declare(queue='%s_rpc_leave_session' % server_name)
+    channel.queue_declare(queue='%s_rpc_ready' % server_name)
+    channel.queue_declare(queue='%s_rpc_send_ship_placement' % server_name)
+    channel.queue_declare(queue='%s_rpc_start_game' % server_name)
+
     channel.basic_qos(prefetch_count=1)
 
     # Assign consumption method for rcp queues
-    channel.basic_consume(on_request_connect, queue='%s_rpc_connect' % server_name)
-    channel.basic_consume(on_request_disconnect, queue='%s_rpc_disconnect' % server_name)
+    channel.basic_consume(rpc_requests.on_request_connect, queue='%s_rpc_connect' % server_name)
+    channel.basic_consume(rpc_requests.on_request_disconnect, queue='%s_rpc_disconnect' % server_name)
+    channel.basic_consume(rpc_requests.on_request_create_session, queue='%s_rpc_create_session' % server_name)
+    channel.basic_consume(rpc_requests.on_request_join_session, queue='%s_rpc_join_session' % server_name)
+    channel.basic_consume(rpc_requests.on_request_leave_session, queue='%s_rpc_leave_session' % server_name)
+    channel.basic_consume(rpc_requests.on_request_ready, queue='%s_rpc_ready' % server_name)
+    channel.basic_consume(rpc_requests.on_request_send_ship_placement, queue='%s_rpc_send_ship_placement' % server_name)
+    channel.basic_consume(rpc_requests.on_request_start_game, queue='%s_rpc_start_game' % server_name)
 
     # using exchange topic_server to send information about server and game sessions of server
     channel.exchange_declare(exchange='topic_server', type='topic')
@@ -47,14 +61,6 @@ def server_main(args):
     server_announcements_thread = ServerAnnouncements(server_name, channel)
     server_announcements_thread.start()
 
-    #test game sessions
-    gamesess = GameSession("test_session", 4, "Mario")
-    gamesess2 = GameSession("test_session2", 3, "Luigi")
-    SESSIONS['test_session'] = gamesess
-    SESSIONS['test_session2'] = gamesess2
-
-
-    print(gamesess.info())
     print "Server %s is up and running" % server_name
 
     channel.start_consuming()
@@ -78,5 +84,5 @@ class ServerAnnouncements(Thread):
         while self._is_running:
             while True:
                 self.channel.basic_publish(exchange='topic_server', routing_key='%s.info' % self.server_name,
-                                           body=self.server_name)
+                                           body=self.server_name)  # TODO add this to json data dumps?
                 time.sleep(1)
