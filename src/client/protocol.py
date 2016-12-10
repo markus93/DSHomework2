@@ -23,16 +23,22 @@ class RPCClient(object):
         self.response = None
         self.corr_id = 0
 
-    def _on_response(self, ch, method, props, body):
-        if self.corr_id == props.correlation_id:
-            self.response = body
-
     def __getattr__(self, method_name):
 
         if self.server_name is None:
             raise AttributeError
 
         def remote_method(**data):
+            """
+            For client it looks like it calls a local function on the RPC object.
+
+            Args:
+                **data (dict[str, object]): Data to send to the server
+
+            Returns:
+                dict[str, object]: Response dictionary from the server
+            """
+
             self.response = None
             message = json.dumps(data)
             self.corr_id = str(uuid.uuid4())
@@ -50,6 +56,13 @@ class RPCClient(object):
             return json.loads(self.response)
 
         return remote_method
+
+    def _on_response(self, ch, method, props, body):
+        if self.corr_id == props.correlation_id:
+            self.response = body
+
+    def exit(self):
+        self.connection.close()
 
 
 def setup_servers_listener(args, callback):
