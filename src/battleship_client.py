@@ -20,7 +20,7 @@ if __name__ == '__main__':
 
     # Parsing arguments
     parser = ArgumentParser(description=__info(),
-                            version = ___VER)
+                            version=___VER)
     parser.add_argument('-H', '--host',\
                         help='INET address of RabbitMQ '\
                         'defaults to %s' % DEFAULT_MQ_INET_ADDR, \
