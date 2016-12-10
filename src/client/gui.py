@@ -23,7 +23,7 @@ class RootWindow(Tkinter.Tk, object):
 
         # Setup connections
         self.rpc = RPCClient(args)
-        setup_servers_listener(args, self.update_servers_list)
+        self.servers_listener = ServersListener(args, self.update_servers_list)
 
         # Show the first frame
         self.server_selection_frame.pack(fill=Tkinter.BOTH)
@@ -38,6 +38,8 @@ class RootWindow(Tkinter.Tk, object):
             self.leave_server()
 
         self.rpc.exit()
+        self.servers_listener.exit()
+
         self.destroy()
 
     def update_servers_list(self, servers):
@@ -47,7 +49,6 @@ class RootWindow(Tkinter.Tk, object):
         Args:
             servers (list[str]): List of server names
         """
-
         self.server_selection_frame.update_servers_list(servers)
 
     def join_server(self, server_name, nickname):
@@ -176,7 +177,7 @@ class ServerSelectionFrame(Tkinter.Frame, object):
                                           command=self.join_server)
         self.join_button.grid(row=0, column=3)
 
-    def toggle_join_button(self, event):
+    def toggle_join_button(self, event=None):
         """
         Disable/enable the join_button
         """
@@ -205,8 +206,19 @@ class ServerSelectionFrame(Tkinter.Frame, object):
             servers (list[str]): List of server names
         """
 
-        for server in servers:
+        try:
+            selected_server = self.servers_listbox.get(self.servers_listbox.curselection()[0])
+        except IndexError:
+            selected_server = None
+
+        self.servers_listbox.delete(0, Tkinter.END,)
+        for i, server in enumerate(servers):
             self.servers_listbox.insert(Tkinter.END, server)
+
+            if server == selected_server:
+                self.servers_listbox.select_set(i)
+
+        self.toggle_join_button()
 
 
 class LobbyFrame(Tkinter.Frame, object):

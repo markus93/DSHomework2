@@ -1,6 +1,8 @@
 import pika
 import json
 import uuid
+import time
+from threading import Thread
 
 
 class RPCClient(object):
@@ -17,7 +19,7 @@ class RPCClient(object):
         result = self.channel.queue_declare(exclusive=True)
         self.callback_queue = result.method.queue
 
-        self.channel.basic_consume(self._on_response, no_ack=True,
+        self.channel.basic_consume(self.on_response, no_ack=True,
                                    queue=self.callback_queue)
 
         self.response = None
@@ -57,7 +59,7 @@ class RPCClient(object):
 
         return remote_method
 
-    def _on_response(self, ch, method, props, body):
+    def on_response(self, ch, method, props, body):
         if self.corr_id == props.correlation_id:
             self.response = body
 
@@ -65,27 +67,51 @@ class RPCClient(object):
         self.connection.close()
 
 
-def setup_servers_listener(args, callback):
+class ServersListener(Thread):
 
-    callback(['test'])
-    return
+    def __init__(self, args, callback):
+        """
+        Listen for servers announcing themselves.
+        Calls callback with list of available server names.
+        """
+        super(ServersListener, self).__init__()
 
-    # TODO check if connection available
-    connection = pika.BlockingConnection(pika.ConnectionParameters(host=args.host, port=args.port))
-    channel = connection.channel()
+        # Set up the RabbitMQ stuff
+        self.connection = pika.BlockingConnection(pika.ConnectionParameters(host=args.host, port=args.port))
+        channel = self.connection.channel()
 
-    channel.exchange_declare(exchange='topic_server',
-                             type='topic')
+        channel.exchange_declare(exchange='topic_server',
+                                 type='topic')
 
-    result = channel.queue_declare(exclusive=True)
-    queue_name = result.method.queue
+        result = channel.queue_declare(exclusive=True)
+        queue_name = result.method.queue
 
-    channel.queue_bind(exchange='topic_server',
-                       queue=queue_name,
-                       routing_key='*.info')
+        channel.queue_bind(exchange='topic_server',
+                           queue=queue_name,
+                           routing_key='*.info')
 
-    channel.basic_consume(callback,
-                          queue=queue_name,
-                          no_ack=True)
+        channel.basic_consume(self.on_anouncment,
+                              queue=queue_name,
+                              no_ack=True)
 
+        # And now the thread logic
+        self.servers = {}
+        self.callback = callback
 
+        self._is_running = True
+        self.start()
+
+    def run(self):
+        while self._is_running:
+            self.connection.process_data_events(1)
+
+    def exit(self):
+        self._is_running = False
+
+    def on_anouncment(self, ch, method, props, body):
+
+        current_time = time.time()
+
+        self.servers[body] = current_time
+
+        self.callback(server_name for server_name, last_seen in self.servers.items() if last_seen > current_time - 5)
