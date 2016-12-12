@@ -1,12 +1,9 @@
-# Main client methods
+# Main client - set up connection and MQ-s and start sending information about server activity to "topic_server"
 
 # Import------------------------------------------------------------------------
 import pika
 import time
-import json
-from common import *
 from threading import Thread
-from gamesession import *
 import rpc_requests
 
 
@@ -24,16 +21,37 @@ def __info():
 
 
 def server_main(args):
+    """
+    Call this method to set up and start server
+    """
+
+    # Initialize connection with mq
+    channel = init_connection_to_mq(args)
+
+    # Start announcing server name to topic_server (so client could check whether server is online)
+    server_announcements_thread = ServerAnnouncements(args.name, channel)
+    server_announcements_thread.start()
+
+    print "Server %s is up and running" % args.name
+
+    # Start consuming client RPC-s
+    channel.start_consuming()
+
+
+def init_connection_to_mq(args):
+    """
+    Create new connection with MQ and declare queues for RPC and topic exchange
+    """
 
     server_name = args.name  # TODO server name should be unique
-    rpc_requests.SERVER_NAME = server_name  # add server name also to this variable
+    rpc_requests.SERVER_NAME = server_name  # add server name also to rpc_request variables
 
-    connection = pika.BlockingConnection(pika.ConnectionParameters(  # TODO check if connection available
+    connection = pika.BlockingConnection(pika.ConnectionParameters(  # TODO try connecting to MQ if possible
         host=args.host, port=args.port))
 
     channel = connection.channel()
 
-    # Create queues for rpc
+    # Create queues for RPC
     channel.queue_declare(queue='%s_rpc_connect' % server_name)
     channel.queue_declare(queue='%s_rpc_disconnect' % server_name)
     channel.queue_declare(queue='%s_rpc_create_session' % server_name)
@@ -58,22 +76,20 @@ def server_main(args):
     # using exchange topic_server to send information about server and game sessions of server
     channel.exchange_declare(exchange='topic_server', type='topic')
 
-    server_announcements_thread = ServerAnnouncements(server_name, channel)
-    server_announcements_thread.start()
-
-    print "Server %s is up and running" % server_name
-
-    channel.start_consuming()
+    return channel
 
 
 class ServerAnnouncements(Thread):
+    """
+    Thread for sending server name to *.info queue, needed in order to check whether server is online or not
+    """
     def __init__(self, server_name, channel):
         """
         Publish server's name after every second in order to show that server is active.
         @param server_name:
         @type server_name: str
         @param channel:
-        @type channel: pika.BlockingConnection.channel
+        @type channel: BlockingConnection.channel
         """
         super(ServerAnnouncements, self).__init__()
         self.server_name = server_name
@@ -84,5 +100,5 @@ class ServerAnnouncements(Thread):
         while self._is_running:
             while True:
                 self.channel.basic_publish(exchange='topic_server', routing_key='%s.info' % self.server_name,
-                                           body=self.server_name)  # TODO add this to json data dumps?
+                                           body=self.server_name)
                 time.sleep(1)
