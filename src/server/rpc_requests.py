@@ -16,6 +16,12 @@ SERVER_NAME = "unnamed"
 
 
 def publish(ch, method, props, rsp):
+    """
+    Publish response to client RPC call
+
+    Args:
+        rsp (dict): dictionary containing response to client
+    """
 
     response = json.dumps(rsp)
 
@@ -27,6 +33,14 @@ def publish(ch, method, props, rsp):
 
 
 def publish_to_topic(ch, key, rsp):
+    """
+    Publish message to topic_server topic exchange MQ
+    Messages about in-game, game session lobby activities
+
+    Args:
+        key (str): routing key of published message
+        rsp (dict): dictionary containing response to client
+    """
 
     response = json.dumps(rsp)
 
@@ -35,6 +49,13 @@ def publish_to_topic(ch, key, rsp):
 
 
 def on_request_connect(ch, method, props, body):
+    """
+    Client RPC request for connecting to game server
+    Publishes response to request to MQ sent by client
+
+    Args:
+        body (json.dumps): json data dumps containing arguments needed for given method
+    """
 
     data = json.loads(body)
 
@@ -66,6 +87,9 @@ def on_request_connect(ch, method, props, body):
 
 
 def on_request_disconnect(ch, method, props, body):
+    """
+    Client RPC request for disconnecting from game server
+    """
 
     data = json.loads(body)
 
@@ -91,7 +115,9 @@ def on_request_disconnect(ch, method, props, body):
 
 
 def on_request_create_session(ch, method, props, body):
-
+    """
+    Client RPC request for creating new game session
+    """
     data = json.loads(body)
 
     try:
@@ -128,6 +154,9 @@ def on_request_create_session(ch, method, props, body):
 
 
 def on_request_join_session(ch, method, props, body):
+    """
+    Client RPC request for joining available game session
+    """
 
     data = json.loads(body)
 
@@ -154,7 +183,8 @@ def on_request_join_session(ch, method, props, body):
                     players.append(user_name)
                     map_pieces = sess.assign_pieces(user_name)
                 else:
-                    pass  # TODO what should happen if player already in list
+                    pass  # TODO player already in list, meaning player tries to reconnect to game session.
+                    # TODO in this case other players already in game, should put player back to game?
                 sess.players = players
 
                 # send info about sessions to sessions lobby and game session lobby
@@ -178,6 +208,9 @@ def on_request_join_session(ch, method, props, body):
 
 
 def on_request_leave_session(ch, method, props, body):
+    """
+    Client RPC request for leaving from current game session
+    """
 
     data = json.loads(body)
 
@@ -191,79 +224,42 @@ def on_request_leave_session(ch, method, props, body):
             err = ""
             sess = SESSIONS[session_name]
 
-            # check whether spot in game session is free
+            # remove player and ships
             players = sess.players
             if user_name in players:
-                players.remove(user_name)
-                sess.unassign_pieces(user_name)
-                # TODO also remove ships, if in game
+                sess.clean_player_info(user_name)  # cleans player info from server (ship placement, player status etc)
+
+                if sess.in_game:
+                    # TODO if in_game then other players should know where not to shoot
+                    pass
+
+                # check if in-game and only one player left (then game is finished)
+                if sess.in_game and len(players) == 1:
+                    print "Game over, only one player left in game."
+                    # TODO send message to winner
+                # check if last player left from session lobby
+                elif len(players) == 0:
+                    print "Game session %s is empty, deleting session" % session_name
+                    # TODO special msg for this, or just client checks whether player_count == 0
+                    SESSIONS.pop(session_name)
+                # check if player was owner of session
+                elif sess.owner == user_name:
+                    sess.owner = players[0]
+                    publish_to_topic(ch, '%s.%s.info' % (SERVER_NAME, session_name),
+                                     {'msg': "%s is new owner of game" % sess.owner, 'owner': sess.owner})
+
+                sess.players = players
+
+                # send info about sessions to sessions lobby and game session lobby
+                publish_to_topic(ch, '%s.sessions.info' % SERVER_NAME, sess.info())
+                publish_to_topic(ch, '%s.%s.info' % (SERVER_NAME, session_name),
+                                 {'msg': "%s leaved from session" % user_name, 'owner': sess.owner})
+
+                print("User \"%s\" left successfully from session %s." % (user_name, session_name))
+
             else:
                 print("User was not in players list!")
 
-            # check if last player
-            if len(players) == 0:
-                print "Game session %s is empty, deleting session" % session_name
-                # TODO special msg for this, or just client checks whether player_count == 0
-                SESSIONS.pop(session_name)
-            elif sess.owner == user_name:  # check if player was owner of session
-                sess.owner = players[0]
-
-            sess.players = players
-
-            # send info about sessions to sessions lobby and game session lobby
-            publish_to_topic(ch, '%s.sessions.info' % SERVER_NAME, sess.info())
-            publish_to_topic(ch, '%s.%s.info' % (SERVER_NAME, session_name),
-                             {'msg': "%s leaved from session" % user_name, 'owner': sess.owner})
-
-            print("User \"%s\" leaved successfully from session %s." % (user_name, session_name))
-        elif user_name not in connected_users:
-            err = "Username \"%s\" is not in connected users list" % user_name
-            print(err)
-        else:
-            err = "Session \"%s\" does not exist anymore" % session_name
-            print(err)
-
-    except KeyError as e:
-        print("KeyError: %s" % str(e))
-        err = str(e)
-
-    publish(ch, method, props, {'err': err})
-
-
-def on_request_ready(ch, method, props, body):
-
-    data = json.loads(body)
-
-    try:
-        user_name = data['user']
-        session_name = data['sname']
-
-        print("%s is getting ready" % user_name)
-        err = ""
-
-        if user_name in connected_users and session_name in SESSIONS:
-
-            sess = SESSIONS[session_name]
-            p_ready = sess.players_ready
-
-            # TODO check if user in players list
-            # TODO check if user has placed ships
-
-            if user_name in p_ready:
-                p_ready.remove(user_name)
-                msg = "%s is not ready anymore" % user_name
-            else:
-                p_ready.append(user_name)
-                msg = "%s is ready" % user_name
-
-            sess.players_ready = p_ready
-
-            # send info about sessions to sessions lobby and game session lobby
-            publish_to_topic(ch, '%s.%s.info' % (SERVER_NAME, session_name),
-                             {'msg': msg})
-            # TODO acknowledge client of player ready state
-
-            print("User \"%s\" set successfully ready state" % user_name)
         elif user_name not in connected_users:
             err = "Username \"%s\" is not in connected users list" % user_name
             print(err)
@@ -279,7 +275,9 @@ def on_request_ready(ch, method, props, body):
 
 
 def on_request_send_ship_placement(ch, method, props, body):
-
+    """
+    Client RPC request for sending ship placement to server. Containing coordinates of ships
+    """
     data = json.loads(body)
 
     try:
@@ -304,7 +302,6 @@ def on_request_send_ship_placement(ch, method, props, body):
                     # send info about sessions to sessions lobby and game session lobby
                     publish_to_topic(ch, '%s.%s.info' % (SERVER_NAME, session_name),
                                      {'msg': "%s placed ships" % user_name, 'owner': sess.owner})
-                    # TODO set also "player has assigned ships" to true (needed in order to ready player)
 
                     print("User \"%s\" ships successfully placed." % user_name)
                 else:
@@ -327,7 +324,62 @@ def on_request_send_ship_placement(ch, method, props, body):
     publish(ch, method, props, {'err': err})
 
 
+def on_request_ready(ch, method, props, body):
+    """
+    Client RPC request for toggling ready state (player is ready to start or not)
+    """
+
+    data = json.loads(body)
+
+    try:
+        user_name = data['user']
+        session_name = data['sname']
+
+        print("%s is getting ready" % user_name)
+        err = ""
+
+        if user_name in connected_users and session_name in SESSIONS:
+
+            sess = SESSIONS[session_name]
+            p_ready = sess.players_ready
+
+            if user_name not in sess.ships_placed:
+                msg = "Place ships before pressing ready."
+                print(msg)
+            elif user_name in p_ready:
+                p_ready.remove(user_name)
+                msg = "%s is not ready anymore" % user_name
+            else:
+                p_ready.append(user_name)
+                msg = "%s is ready" % user_name
+
+            sess.players_ready = p_ready
+
+            # send info about sessions to sessions lobby and game session lobby
+            publish_to_topic(ch, '%s.%s.info' % (SERVER_NAME, session_name),
+                             {'msg': msg})
+            # acknowledge client of player ready state
+
+            print("User \"%s\" set successfully ready state" % user_name)
+        elif user_name not in connected_users:
+            err = "Username \"%s\" is not in connected users list" % user_name
+            print(err)
+        else:
+            err = "Session \"%s\" does not exist anymore" % session_name
+            print(err)
+
+    except KeyError as e:
+        print("KeyError: %s" % str(e))
+        err = str(e)
+
+    publish(ch, method, props, {'err': err})
+
+
 def on_request_start_game(ch, method, props, body):
+    """
+    Client RPC request for starting game, checking if all players are ready to start game
+    Publishes to topic_server about game starting
+    """
 
     data = json.loads(body)
 
@@ -376,3 +428,10 @@ def on_request_start_game(ch, method, props, body):
         err = str(e)
 
     publish(ch, method, props, {'err': err})
+
+
+def on_request_shoot(ch, method, props, body):
+    """
+    Client RPC request for shooting, check if game session in game, player in list, then call shoot method
+    """
+    pass
