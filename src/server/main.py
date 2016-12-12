@@ -60,6 +60,7 @@ def init_connection_to_mq(args):
     channel.queue_declare(queue='%s_rpc_ready' % server_name)
     channel.queue_declare(queue='%s_rpc_send_ship_placement' % server_name)
     channel.queue_declare(queue='%s_rpc_start_game' % server_name)
+    channel.queue_declare(queue='%s_rpc_shoot' % server_name)
 
     channel.basic_qos(prefetch_count=1)
 
@@ -72,6 +73,7 @@ def init_connection_to_mq(args):
     channel.basic_consume(rpc_requests.on_request_ready, queue='%s_rpc_ready' % server_name)
     channel.basic_consume(rpc_requests.on_request_send_ship_placement, queue='%s_rpc_send_ship_placement' % server_name)
     channel.basic_consume(rpc_requests.on_request_start_game, queue='%s_rpc_start_game' % server_name)
+    channel.basic_consume(rpc_requests.on_request_shoot, queue='%s_rpc_shoot' % server_name)
 
     # using exchange topic_server to send information about server and game sessions of server
     channel.exchange_declare(exchange='topic_server', type='topic')

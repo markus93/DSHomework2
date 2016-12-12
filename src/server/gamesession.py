@@ -8,19 +8,21 @@ class GameSession:
 
     def __init__(self, session_name, max_players, owner):
 
-        self.session_name = session_name
-        self.max_players = max_players
-        self.owner = owner
-        self.in_game = False
-        self.players = [owner]
+        self.session_name = session_name  # name of game session
+        self.max_players = max_players  # maximum count of players
+        self.owner = owner  # owner of given session (can start game)
+        self.in_game = False  # is game currently on going or in lobby
+        self.players = [owner]  # players joined in session
         self.players_ready = []  # can't start before all players ready (owner doesn't matter)
         self.map_size = [(6*max_players - 1), (20+3)]  # players-1 buffer rows,
         # 3 buffer columns between pieces
-        self.map_pieces = divide_map_pieces(max_players, 4)
-        self.map_pieces_assigned = [owner] + [None]*(max_players-1)
-        self.ship_placement = [x[:] for x in [[0] * (20+3)] * (max_players*6-1)]  # init ship placement matrix
+        self.map_pieces = divide_map_pieces(max_players, 4)  # map pieces divided into 4 (each player 4 random squares)
+        self.map_pieces_assigned = [owner] + [None]*(max_players-1)  # which map piece is assigned to who (add to dict?)
+        self.battlefield = [x[:] for x in [[0] * (20 + 3)] * (max_players * 6 - 1)]  # init ship placement matrix
         # 5 lines for each player + 1 for buffer between player pieces
-        self.ships_placed = []
+        self.ships_placed = []  # players who have placed ships, needed in order to start game
+        self.next_shot_by = owner  # player who is shooting atm (or going to)
+        self.players_left = max_players
         # where the ships are (-1, 0, 1, 2) 2 for healthy ship part,
         # 1 for hit ship and 0 for empty spot, should server take also into account what spot is shot?
         # So if player reconnects he can get the info about what spot is shot already. -1 for shot empty spot
@@ -41,14 +43,137 @@ class GameSession:
                      'map': self.map_pieces_assigned}
         return dict_info
 
-    def check_shot(self):
-        # check whether hit/miss, did ship sink or not
-        # if hit, also return who was hit
-        # if ship sunk, check end_game
-        pass
+    def check_shot(self, coords):
+        """
+        checks whether given square was a hit
 
-    def end_game(self):
-        pass
+        Args:
+            coords ([int,int]): coordinates of hit point
+        Returns:
+            int: 0 - miss, 1 - hit, 2 - hit and sunk
+        """
+        x = coords[0]
+        y = coords[1]
+
+        result = self.battlefield[x][y]
+
+        if result == 0:  # no ship, not shot
+            self.battlefield[x][y] = -1
+            return 0
+        elif result == 2:  # ship, not shot
+            self.battlefield[x][y] = 1
+            if self.check_ship_sunk(x,y):
+                return 2
+            else:
+                return 1
+        else:
+            print("Square [%d,%d] was already shot" % (x,y))
+            return 0  # miss, however spot was already shot
+
+    def check_end_game(self):
+        """
+        Checks who are still in game, if only one player then game over.
+
+        Returns:
+            str: player name if some one just lost a game, else None
+        """
+
+        max_x = len(self.battlefield)
+        max_y = len(self.battlefield[0])
+
+        list_players_left = []
+
+        for x in range(0, max_x):
+            for y in range(0, max_y):
+                if self.battlefield[x][y] == 2:
+                    owner = self.get_ship_owner([x,y])
+                    if owner not in list_players_left:
+                        list_players_left.append(owner)
+
+        if list_players_left != self.players_left:
+            self.players_left -= 1
+            for player in self.players:
+                if player not in list_players_left:
+                    return player
+        else:
+            return None
+
+    def check_ship_sunk(self, x, y):
+        # check whether ship is sunk or not
+
+        max_y = 20 + 3
+        max_x = self.max_players * 6 - 1
+
+        # TODO refactor these for loops
+        for i in range(1, 4):  # max length of ship is 4
+            if (y-i) >= 0:  # check up
+                spot_info = self.battlefield[x][y-i]
+                if spot_info == 2:
+                    return False  # in this case ship is not sunk
+                elif spot_info != 1:
+                    break
+            else:
+                break
+
+        for i in range(1, 4):  # max length of ship is 4
+            if (y+i) <= max_x:  # check down
+                spot_info = self.battlefield[x][y + i]
+                if spot_info == 2:
+                    return False  # in this case ship is not sunk
+                elif spot_info != 1:
+                    break  # empty square was found
+            else:
+                break
+
+        for i in range(1, 4):  # max length of ship is 4
+            if (x-i) >= 0:  # check left
+                spot_info = self.battlefield[x-i][y]
+                if spot_info == 2:
+                    return False  # in this case ship is not sunk
+                elif spot_info != 1:
+                    break  # empty square was found
+            else:
+                break
+
+        for i in range(1, 4):  # max length of ship is 4
+            if (x+i) <= max_y:  # check right
+                spot_info = self.battlefield[x+i][y]
+                if spot_info == 2:
+                    return False  # in this case ship is not sunk
+                elif spot_info != 1:
+                    break  # empty square was found
+            else:
+                break
+
+        return True  # if no 2-s found around ship, then ship is sunk
+
+    def get_next_player(self):
+        """
+        Returns Next player who can shoot
+        Returns:
+            str: name of player, who is next
+        """
+
+        current = self.next_shot_by
+        next_idx = self.players[current] + 1
+        next_p = self.players[next_idx % len(self.players)]
+
+        # TODO check if player active and alive
+
+        return next_p
+
+    def get_ship_coordinates(self, coords):
+        """
+        Gets all coordinates of given ship
+        Args:
+            coords:
+        Returns:
+            list[[int,int]]: list of coordinates containing ship coordinates
+        """
+
+        # TODO get ship coordinates
+
+        return coords
 
     def assign_pieces(self, user_name):
         """
@@ -108,7 +233,7 @@ class GameSession:
         if err != "":
             return err
 
-        ship_map = self.ship_placement
+        ship_map = self.battlefield
 
         # Add ships to map
         for coord in coords:
@@ -119,7 +244,7 @@ class GameSession:
 
         print ship_map
 
-        self.ship_placement = ship_map
+        self.battlefield = ship_map
 
         if user_name not in self.ships_placed:
             self.ships_placed.append(user_name)
@@ -136,7 +261,7 @@ class GameSession:
             str: error messages
         """
 
-        ship_map = self.ship_placement
+        ship_map = self.battlefield
         idx = self.map_pieces_assigned.index(user_name)
 
         if idx == -1:
@@ -153,9 +278,43 @@ class GameSession:
                 for j in range(row_start, row_start+5):
                     ship_map[j][i] = 0
 
-        self.ship_placement = ship_map
+        self.battlefield = ship_map
 
         return ""
+
+    def get_ship_owner(self, coords):
+        """
+        returns to who given square belongs to (does not have to have ship on it necessarily)
+
+        Args:
+            coords ([int,int]): coordinates of hit point
+        Returns:
+            str: player name, to who this square belongs to
+        """
+        x = coords[0]
+        y = coords[1]
+
+        # get which piece from row, 0th, 1st, 2nd, 3rd
+        piece_in_row = x // 6  # divided by 6 because each piece have 6 squares (except last)
+        # get piece number in column
+        piece_in_column = y // 6
+
+        piece_nr = piece_in_column*4 + piece_in_row  # every column has 4 pieces (column nr start from zero)
+        # and then added piece number of row
+
+        print("Piece number %d" % piece_in_row)
+
+        owner_of_square = None
+
+        for pieces in self.map_pieces:
+            if piece_nr in pieces:
+                idx = self.map_pieces[pieces]
+                owner_of_square = self.map_pieces_assigned[idx]
+
+        if owner_of_square is None:
+            print("ERR: Piece is not assigned to anyone!!")
+
+        return owner_of_square
 
     def clean_player_info(self, user_name):
         """
@@ -187,7 +346,7 @@ def divide_map_pieces(number_of_players, pieces_per_player):
     Returns:
         list[list[int]]: list of lists containing map pieces
     """
-    
+
     number_of_pieces = number_of_players*pieces_per_player
     list_pieces = range(0, number_of_pieces)
     divided_pieces = []
