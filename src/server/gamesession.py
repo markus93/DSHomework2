@@ -204,19 +204,17 @@ class GameSession:
         Returns:
             list[int]: map pieces assigned to player
         """
-
-        idx = self.map_pieces_assigned.index(None)
-        map_pieces = []
-        if idx != -1:
+        if None in self.map_pieces_assigned:
+            idx = self.map_pieces_assigned.index(None)
             self.map_pieces_assigned[idx] = user_name
-            map_pieces = self.map_pieces[idx]
-
-        return map_pieces
+            return self.map_pieces[idx]
+        else:
+            return []
 
     def unassign_pieces(self, user_name):
-        idx = self.map_pieces_assigned.index(user_name)
 
-        if idx != -1:
+        if user_name in self.map_pieces_assigned:
+            idx = self.map_pieces_assigned.index(user_name)
             self.map_pieces_assigned[idx] = None
 
     def check_ready(self, owner):
@@ -280,10 +278,11 @@ class GameSession:
         """
 
         ship_map = self.battlefield
-        idx = self.map_pieces_assigned.index(user_name)
 
-        if idx == -1:
-            return "User %s have no pieces assigned to" % user_name
+        if user_name in self.map_pieces_assigned:
+            idx = self.map_pieces_assigned.index(user_name)
+        else:
+            return "No pieces of map are assigned to user %s" % user_name
 
         pieces = self.map_pieces[idx]
 
@@ -366,9 +365,8 @@ class GameSession:
              list[int]: containing indexes of player map pieces
         """
 
-        idx = self.map_pieces_assigned.index(user_name)
-
-        if idx != -1:
+        if user_name in self.map_pieces_assigned:
+            idx = self.map_pieces_assigned.index(user_name)
             return self.map_pieces[idx]
         else:
             return []

@@ -1,4 +1,4 @@
-# Handles RPC requests, publishes necessary info etc
+# Handles RPC requests, publishes necessary info to MQ-s based on requests, times out player turn
 
 # Import
 
@@ -70,7 +70,7 @@ def on_request_connect(ch, method, props, body):
         if user_name not in connected_users:
             connected_users.append(user_name)
 
-            # TODO start listening for user activity, if user not active and in game then send info to session?
+            # TODO start listening for user activity, if user not active and in game then send info to session.
 
             # Get sessions info
             for key in SESSIONS.keys():
@@ -103,6 +103,8 @@ def on_request_disconnect(ch, method, props, body):
 
         if user_name in connected_users:
             connected_users.remove(user_name)
+
+            # TODO stop listening for user activity
 
             print("User \"%s\" disconnected successfully." % user_name)
         else:
@@ -177,6 +179,8 @@ def on_request_join_session(ch, method, props, body):
             players = sess.players
             max_count = sess.max_players
 
+            #TODO check also if game not in_game, else check if user in players list (meaning reconnecting user)
+
             if len(players) >= max_count:
                 err = "Game session \"%s\" is full." % session_name
                 print(err)
@@ -191,7 +195,8 @@ def on_request_join_session(ch, method, props, body):
 
                 # send info about sessions to sessions lobby and game session lobby
                 publish_to_topic(ch, '%s.sessions.info' % SERVER_NAME, sess.info())
-                publish_to_topic(ch, '%s.%s.info' % (SERVER_NAME, session_name), {'msg': "%s joined to session"})
+                publish_to_topic(ch, '%s.%s.info' % (SERVER_NAME, session_name),
+                                 {'msg': "%s joined to session" % user_name})
 
                 print("User \"%s\" joined successfully to session %s." % (user_name, session_name))
 
@@ -229,46 +234,46 @@ def on_request_leave_session(ch, method, props, body):
             # remove player and ships
             players = sess.players
             if user_name in players:
-                sess.clean_player_info(user_name)  # cleans player info from server (ship placement, player status etc)
-
-                if sess.in_game:
-                    print "%s ships removed, sending data to client." % user_name
-                    publish_to_topic(ch, '%s.%s.info' % (SERVER_NAME, session_name),
-                                     {'msg': "%s ships removed" % user_name, 'empty_map': sess.get_map_pieces(user_name)})
-                # check if in-game and only one player left (then game is finished)
-                if sess.in_game and len(sess.players) == 1:
-                    print "Game over, only one player left in game."
-                    publish_to_topic(ch, '%s.%s.%s' % (SERVER_NAME, session_name, players[0]),  # message to winner
-                                     {'msg': 'You won!'})
-                    publish_to_topic(ch, '%s.%s.info' % (SERVER_NAME, session_name),
-                                     {'msg': "%s won the game" % players[0], 'gameover': players[0]})  # msg to session
-
-                    # Reset session info
-                    sess.reset_session(sess)
-
-                # check if last player left from session lobby
-                elif len(players) == 0:
-                    print "Game session %s is empty, deleting session" % session_name
-                    # TODO special msg for this, or just client checks whether player_count == 0
-                    del SESSIONS[session_name]
                 # check if player was owner of session
-                elif sess.owner == user_name:
+                if sess.owner == user_name:
                     sess.owner = players[0]
                     publish_to_topic(ch, '%s.%s.info' % (SERVER_NAME, session_name),
-                                     {'msg': "%s is new owner of game" % sess.owner, 'owner': sess.owner})
+                                     {'msg': "%s is new owner of game (last owner left)" % sess.owner,
+                                      'owner': sess.owner})
 
-                sess.players = players
+                if sess.in_game:  # check if in-game and only one player left (then game is finished)
+                    if len(sess.players)-1 == 1:  # have not yet removed the player
+                        print "Game over, only one player left in game."
+                        publish_to_topic(ch, '%s.%s.%s' % (SERVER_NAME, session_name, players[0]),  # message to winner
+                                         {'msg': 'You won! (other players left)'})
+                        publish_to_topic(ch, '%s.%s.info' % (SERVER_NAME, session_name),
+                                         {'msg': "%s won the game" % players[0],
+                                          'gameover': players[0]})  # msg to session
 
-                # send info about sessions to sessions lobby and game session lobby
-                publish_to_topic(ch, '%s.sessions.info' % SERVER_NAME, sess.info())  # TODO client should understand whether session is there anymore
-                publish_to_topic(ch, '%s.%s.info' % (SERVER_NAME, session_name),
-                                 {'msg': "%s left from session" % user_name, 'owner': sess.owner})
+                        sess.reset_session(sess)
+                    else:  # otherwise send other players map where is no ships
+                        map_empty = sess.get_map_pieces(user_name)
+                        sess.clean_player_info(user_name)  # clean player info
+                        print "%s ships removed, sending data to client." % user_name
+                        publish_to_topic(ch, '%s.%s.info' % (SERVER_NAME, session_name),
+                                         {'msg': "%s ships removed" % user_name, 'empty_map': map_empty})
+                else:  # in lobby
+                    if len(players)-1 == 0:  # no players left in session - delete session
+                        msg = "Game session %s is empty, session deleted" % session_name
+                        print(msg)
+                        # TODO special msg for this, or just client checks whether player_count == 0
+                        del SESSIONS[session_name]
+                    else:  # otherwise clean user info, and send message about leaving lobby
+                        sess.clean_player_info(user_name)
+                        publish_to_topic(ch, '%s.%s.info' % (SERVER_NAME, session_name),
+                                         {'msg': "%s left from session" % user_name})
+                    # refresh sessions list
+                    publish_to_topic(ch, '%s.sessions.info' % SERVER_NAME, sess.info())
+                    # TODO client should understand whether session is there anymore
 
                 print("User \"%s\" left successfully from session %s." % (user_name, session_name))
-
             else:
                 print("User was not in players list!")
-
         elif user_name not in connected_users:
             err = "Username \"%s\" is not in connected users list" % user_name
             print(err)
@@ -310,7 +315,7 @@ def on_request_send_ship_placement(ch, method, props, body):
 
                     # send info about sessions to sessions lobby and game session lobby
                     publish_to_topic(ch, '%s.%s.info' % (SERVER_NAME, session_name),
-                                     {'msg': "%s placed ships" % user_name, 'owner': sess.owner})
+                                     {'msg': "%s placed ships" % user_name})
 
                     print("User \"%s\" ships successfully placed." % user_name)
                 else:
@@ -420,7 +425,7 @@ def on_request_start_game(ch, method, props, body):
                 # TODO how to send info to players about game starting - is there better method,
                 # TODO this way client should always check whether msg contains key 'active'.
 
-                # TODO start timing out players action if haven't got response from them in 10 seconds
+                # TODO start timing out players turns if haven't got response from them in 10 seconds
 
                 print("User \"%s\" started game successfully from session %s." % (user_name, session_name))
             else:
@@ -476,10 +481,10 @@ def on_request_shoot(ch, method, props, body):
                     # shot hit
                     msg = "You hit a ship."
                     print("Shot hit!")
-                    hit = sess.get_ship_owner(coords)
+                    hit_name = sess.get_ship_owner(coords)
                     msg2 = "Your ship was hit by %s" % user_name
                     # message to player who was hit
-                    publish_to_topic(ch, '%s.%s.%s' % (SERVER_NAME, session_name, hit),  # meant only for hit player
+                    publish_to_topic(ch, '%s.%s.%s' % (SERVER_NAME, session_name, hit_name),  # meant only for hit player
                                      {'msg': msg2, 'coords': coords})
 
                 else:
@@ -526,3 +531,4 @@ def on_request_shoot(ch, method, props, body):
 
     publish(ch, method, props, {'err': err, 'msg': msg})
 
+#class
