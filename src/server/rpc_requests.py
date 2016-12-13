@@ -70,6 +70,8 @@ def on_request_connect(ch, method, props, body):
         if user_name not in connected_users:
             connected_users.append(user_name)
 
+            # TODO start listening for user activity, if user not active and in game then send info to session?
+
             # Get sessions info
             for key in SESSIONS.keys():
                 sessions.append(SESSIONS[key].info())
@@ -230,9 +232,8 @@ def on_request_leave_session(ch, method, props, body):
                 sess.clean_player_info(user_name)  # cleans player info from server (ship placement, player status etc)
 
                 if sess.in_game:
-                    # TODO if in_game then other players should know where not to shoot
+                    # TODO if player leaves game then other players should know where not to shoot
                     pass
-
                 # check if in-game and only one player left (then game is finished)
                 if sess.in_game and len(players) == 1:
                     print "Game over, only one player left in game."
@@ -251,7 +252,7 @@ def on_request_leave_session(ch, method, props, body):
                 sess.players = players
 
                 # send info about sessions to sessions lobby and game session lobby
-                publish_to_topic(ch, '%s.sessions.info' % SERVER_NAME, sess.info())
+                publish_to_topic(ch, '%s.sessions.info' % SERVER_NAME, sess.info())  # TODO client should understand whether session is there anymore
                 publish_to_topic(ch, '%s.%s.info' % (SERVER_NAME, session_name),
                                  {'msg': "%s leaved from session" % user_name, 'owner': sess.owner})
 
@@ -400,13 +401,18 @@ def on_request_start_game(ch, method, props, body):
             elif sess.check_ready(user_name):  # check whether players ready
 
                 sess.in_game = True
+                sess.players_left = len(sess.players)
 
                 # send info about sessions to sessions lobby and game session lobby
                 publish_to_topic(ch, '%s.sessions.info' % SERVER_NAME, sess.info())
                 publish_to_topic(ch, '%s.%s.info' % (SERVER_NAME, session_name),
-                                 {'msg': "%s started game" % user_name, 'active': sess.in_game})
+                                 {'msg': "%s started game and has first shot" % user_name,
+                                  'active': sess.in_game, 'next': user_name})  # atm owner gets the first shot
+
                 # TODO how to send info to players about game starting - is there better method,
                 # TODO this way client should always check whether msg contains key 'active'.
+
+                # TODO start timing out players action if haven't got response from them in 10 seconds
 
                 print("User \"%s\" started game successfully from session %s." % (user_name, session_name))
             else:
@@ -434,4 +440,80 @@ def on_request_shoot(ch, method, props, body):
     """
     Client RPC request for shooting, check if game session in game, player in list, then call shoot method
     """
-    pass
+
+    data = json.loads(body)
+
+    msg = ""
+
+    try:
+        user_name = data['user']
+        session_name = data['sname']
+        coords = data['coords']
+
+        print("%s taking shot at %s on %s" % (user_name, str(coords), session_name))
+
+        if user_name in connected_users and session_name in SESSIONS:
+            err = ""
+            sess = SESSIONS[session_name]
+
+            if sess.next_shot_by == user_name:
+
+                res = sess.check_shot(coords)  # 0-miss, 1-hit, 2-sunk (refactor to enum)
+
+                if res == 0:
+                    # shot missed
+                    msg = "You missed."
+                    print("Shot missed")
+                elif res == 1:
+                    # shot hit
+                    msg = "You hit a ship."
+                    print("Shot hit!")
+                    hit = sess.get_ship_owner(coords)
+                    msg2 = "Your ship was hit by %s" % user_name
+                    # message to player who was hit
+                    publish_to_topic(ch, '%s.%s.%s' % (SERVER_NAME, session_name, hit),  # meant only for hit player
+                                     {'msg': msg2, 'coords': coords})
+
+                else:
+                    # ship sunk
+                    msg = "You hit and sunk a ship."
+                    ship_coords = sess.get_ship_coords(coords)
+
+                    publish_to_topic(ch, '%s.%s.info' % (SERVER_NAME, session_name),
+                                     {'msg': "%s sunk a ship" % user_name, 'coords': ship_coords})
+
+                    # check whether any player lost a game and if only one player left
+                    player_lost = sess.check_end_game()
+                    if player_lost is not None:
+                        publish_to_topic(ch, '%s.%s.info' % (SERVER_NAME, session_name),
+                                         {'msg': "%s lost game" % player_lost, 'gameover': player_lost})
+                        if sess.players_left == 1:
+                            print("Game over")
+                            publish_to_topic(ch, '%s.%s.info' % (SERVER_NAME, session_name),
+                                             {'msg': "%s won the game" % user_name, 'gameover': user_name})
+
+                            # TODO reset game session info.
+
+                if sess.in_game:  # in case game over, then not in_game anymore (because created new session)
+
+                    next_player = sess.get_next_player()
+
+                    publish_to_topic(ch, '%s.%s.info' % (SERVER_NAME, session_name),
+                                     {'msg': "%s's turn." % next_player, 'next': next_player, 'coords': coords})
+            else:
+                # not players turn to shoot
+                err = "It is not your turn to shoot"
+                print(err + " " + user_name)
+
+        elif user_name not in connected_users:
+            err = "Username \"%s\" is not in connected users list" % user_name
+            print(err)
+        else:
+            err = "Session \"%s\" does not exist anymore" % session_name
+            print(err)
+
+    except KeyError as e:
+        print("KeyError: %s" % str(e))
+        err = str(e)
+
+    publish(ch, method, props, {'err': err, 'msg': msg})
