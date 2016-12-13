@@ -14,7 +14,7 @@ class GameSession:
         self.in_game = False  # is game currently on going or in lobby
         self.players = [owner]  # players joined in session
         self.players_ready = []  # can't start before all players ready (owner doesn't matter)
-        self.map_size = [(6*max_players - 1), (20+3)]  # players-1 buffer rows,
+        # self.map_size = [(6*max_players - 1), (20+3)]  # players-1 buffer rows,
         # 3 buffer columns between pieces
         self.map_pieces = divide_map_pieces(max_players, 4)  # map pieces divided into 4 (each player 4 random squares)
         self.map_pieces_assigned = [owner] + [None]*(max_players-1)  # which map piece is assigned to who (add to dict?)
@@ -22,7 +22,8 @@ class GameSession:
         # 5 lines for each player + 1 for buffer between player pieces
         self.ships_placed = []  # players who have placed ships, needed in order to start game
         self.next_shot_by = owner  # player who is shooting atm (or going to)
-        self.players_left = max_players
+        self.players_active = []  # name of players who are communicating actively with server
+        self.players_alive = []  # player names that still have ships left
         # where the ships are (-1, 0, 1, 2) 2 for healthy ship part,
         # 1 for hit ship and 0 for empty spot, should server take also into account what spot is shot?
         # So if player reconnects he can get the info about what spot is shot already. -1 for shot empty spot
@@ -90,10 +91,10 @@ class GameSession:
                     if owner not in list_players_left:
                         list_players_left.append(owner)
 
-        if list_players_left != self.players_left:
-            self.players_left -= 1
-            for player in self.players:
-                if player not in list_players_left:
+        if list_players_left != len(self.players_alive):
+            for player in self.players_alive:
+                if player not in list_players_left:  # in this case all players ships have been destroyed
+                    self.players_alive.remove(player)
                     return player
         else:
             return None
@@ -101,51 +102,16 @@ class GameSession:
     def check_ship_sunk(self, x, y):
         # check whether ship is sunk or not
 
-        max_y = 20 + 3
-        max_x = self.max_players * 6 - 1
+        ship_coords = self.get_ship_coordinates([x, y])
 
-        # TODO refactor these for loops
-        for i in range(1, 4):  # max length of ship is 4
-            if (y-i) >= 0:  # check up
-                spot_info = self.battlefield[x][y-i]
-                if spot_info == 2:
-                    return False  # in this case ship is not sunk
-                elif spot_info != 1:
-                    break
-            else:
-                break
+        for coords in ship_coords:
+            value = self.battlefield[coords[0]][coords[1]]
+            if value == 2:
+                return False  # at least one part of ship is unbroken
 
-        for i in range(1, 4):  # max length of ship is 4
-            if (y+i) <= max_x:  # check down
-                spot_info = self.battlefield[x][y + i]
-                if spot_info == 2:
-                    return False  # in this case ship is not sunk
-                elif spot_info != 1:
-                    break  # empty square was found
-            else:
-                break
+        # All ship parts been shot at
+        return True
 
-        for i in range(1, 4):  # max length of ship is 4
-            if (x-i) >= 0:  # check left
-                spot_info = self.battlefield[x-i][y]
-                if spot_info == 2:
-                    return False  # in this case ship is not sunk
-                elif spot_info != 1:
-                    break  # empty square was found
-            else:
-                break
-
-        for i in range(1, 4):  # max length of ship is 4
-            if (x+i) <= max_y:  # check right
-                spot_info = self.battlefield[x+i][y]
-                if spot_info == 2:
-                    return False  # in this case ship is not sunk
-                elif spot_info != 1:
-                    break  # empty square was found
-            else:
-                break
-
-        return True  # if no 2-s found around ship, then ship is sunk
 
     def get_next_player(self):
         """
@@ -155,25 +121,78 @@ class GameSession:
         """
 
         current = self.next_shot_by
-        next_idx = self.players[current] + 1
-        next_p = self.players[next_idx % len(self.players)]
 
-        # TODO check if player active and alive
+        for i in range(1, len(self.players)+1):
 
-        return next_p
+            next_idx = self.players.index(current) + i
+            next_p = self.players[next_idx % len(self.players)]
+
+            if next_p in self.players_active and next_p in self.players_alive:
+                self.next_shot_by = next_p
+                return next_p
+
+        print("ERR: No players alive or active, shouldn't happen")
+        return current
 
     def get_ship_coordinates(self, coords):
         """
-        Gets all coordinates of given ship
+        Gets all coordinates of given ship, atm not checked whether given coordinate has ship.
+
         Args:
             coords:
         Returns:
             list[[int,int]]: list of coordinates containing ship coordinates
         """
 
-        # TODO get ship coordinates
+        max_y = 20 + 3
+        max_x = self.max_players * 6 - 1
+        x = coords[0]
+        y = coords[1]
 
-        return coords
+        ship_coords = [coords]
+
+        # TODO refactor these for-loops
+        for i in range(1, 4):  # max length of ship is 4
+            if (y - i) >= 0:  # check up
+                spot_info = self.battlefield[x][y - i]
+                if spot_info == 2 or spot_info == 1:
+                    ship_coords.append([x, y-i])
+                else:
+                    break
+            else:
+                break
+
+        for i in range(1, 4):  # max length of ship is 4
+            if (y + i) <= max_x:  # check down
+                spot_info = self.battlefield[x][y + i]
+                if spot_info == 2 or spot_info == 1:
+                    ship_coords.append([x, y+i])
+                else:
+                    break
+            else:
+                break
+
+        for i in range(1, 4):  # max length of ship is 4
+            if (x - i) >= 0:  # check left
+                spot_info = self.battlefield[x - i][y]
+                if spot_info == 2 or spot_info == 1:
+                    ship_coords.append([x-i, y])
+                else:
+                    break
+            else:
+                break
+
+        for i in range(1, 4):  # max length of ship is 4
+            if (x + i) <= max_y:  # check right
+                spot_info = self.battlefield[x + i][y]
+                if spot_info == 2 or spot_info == 1:
+                    ship_coords.append([x+i, y])
+                else:
+                    break
+            else:
+                break
+
+        return ship_coords  # if no 2-s found around ship, then ship is sunk
 
     def assign_pieces(self, user_name):
         """
@@ -239,10 +258,9 @@ class GameSession:
         for coord in coords:
             ship_map[coord[0]][coord[1]] = 2
 
-        # TODO check if ship placement is valid - are right ships assigned, are ships placed right way,
-        # TODO are ships in right map pieces
+        # TODO check if ship placement is valid - are right ships assigned and placed right way in right map pieces
 
-        print ship_map
+        #print ship_map
 
         self.battlefield = ship_map
 
@@ -295,20 +313,20 @@ class GameSession:
         y = coords[1]
 
         # get which piece from row, 0th, 1st, 2nd, 3rd
-        piece_in_row = x // 6  # divided by 6 because each piece have 6 squares (except last)
+        piece_in_row = y // 6  # divided by 6 because each piece have 6 squares (except last)
         # get piece number in column
-        piece_in_column = y // 6
+        piece_in_column = x // 6
 
         piece_nr = piece_in_column*4 + piece_in_row  # every column has 4 pieces (column nr start from zero)
         # and then added piece number of row
 
-        print("Piece number %d" % piece_in_row)
+        #print("Piece number %d" % piece_in_row)
 
         owner_of_square = None
 
         for pieces in self.map_pieces:
             if piece_nr in pieces:
-                idx = self.map_pieces[pieces]
+                idx = self.map_pieces.index(pieces)
                 owner_of_square = self.map_pieces_assigned[idx]
 
         if owner_of_square is None:
@@ -331,9 +349,46 @@ class GameSession:
 
         if user_name in self.players_ready:
             self.players_ready.remove(user_name)
-
         if user_name in self.ships_placed:
             self.ships_placed.remove(user_name)
+        if user_name in self.players_active:
+            self.players_active.remove(user_name)
+        if user_name in self.players_alive:
+            self.players_alive.remove(user_name)
+
+    def get_map_pieces(self, user_name):
+        """
+        Gets map pieces assigned to given player
+
+        Args:
+            user_name (str): Name of player (user)
+        Returns:
+             list[int]: containing indexes of player map pieces
+        """
+
+        idx = self.map_pieces_assigned.index(user_name)
+
+        if idx != -1:
+            return self.map_pieces[idx]
+        else:
+            return []
+
+    def start_game(self):
+        self.in_game = True
+        self.players_alive = self.players
+        self.players_active = self.players
+
+    def reset_session(self):
+        """
+        Resets ship placement, battlefield and in game info
+        """
+        self.in_game = False
+        self.players_ready = []
+        self.battlefield = [x[:] for x in [[0] * (20 + 3)] * (self.max_players * 6 - 1)]
+        self.ships_placed = []
+        self.next_shot_by = self.owner
+        self.players_active = []
+        self.players_alive = []
 
 
 def divide_map_pieces(number_of_players, pieces_per_player):
