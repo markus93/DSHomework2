@@ -232,17 +232,25 @@ def on_request_leave_session(ch, method, props, body):
                 sess.clean_player_info(user_name)  # cleans player info from server (ship placement, player status etc)
 
                 if sess.in_game:
-                    # TODO if player leaves game then other players should know where not to shoot
-                    pass
+                    print "%s ships removed, sending data to client." % user_name
+                    publish_to_topic(ch, '%s.%s.info' % (SERVER_NAME, session_name),
+                                     {'msg': "%s ships removed" % user_name, 'empty_map': sess.get_map_pieces(user_name)})
                 # check if in-game and only one player left (then game is finished)
-                if sess.in_game and len(players) == 1:
+                if sess.in_game and len(sess.players) == 1:
                     print "Game over, only one player left in game."
-                    # TODO send message to winner
+                    publish_to_topic(ch, '%s.%s.%s' % (SERVER_NAME, session_name, players[0]),  # message to winner
+                                     {'msg': 'You won!'})
+                    publish_to_topic(ch, '%s.%s.info' % (SERVER_NAME, session_name),
+                                     {'msg': "%s won the game" % players[0], 'gameover': players[0]})  # msg to session
+
+                    # Reset session info
+                    sess.reset_session(sess)
+
                 # check if last player left from session lobby
                 elif len(players) == 0:
                     print "Game session %s is empty, deleting session" % session_name
                     # TODO special msg for this, or just client checks whether player_count == 0
-                    SESSIONS.pop(session_name)
+                    del SESSIONS[session_name]
                 # check if player was owner of session
                 elif sess.owner == user_name:
                     sess.owner = players[0]
@@ -254,7 +262,7 @@ def on_request_leave_session(ch, method, props, body):
                 # send info about sessions to sessions lobby and game session lobby
                 publish_to_topic(ch, '%s.sessions.info' % SERVER_NAME, sess.info())  # TODO client should understand whether session is there anymore
                 publish_to_topic(ch, '%s.%s.info' % (SERVER_NAME, session_name),
-                                 {'msg': "%s leaved from session" % user_name, 'owner': sess.owner})
+                                 {'msg': "%s left from session" % user_name, 'owner': sess.owner})
 
                 print("User \"%s\" left successfully from session %s." % (user_name, session_name))
 
@@ -400,8 +408,8 @@ def on_request_start_game(ch, method, props, body):
                 print(err)
             elif sess.check_ready(user_name):  # check whether players ready
 
-                sess.in_game = True
-                sess.players_left = len(sess.players)
+                # START GAME
+                sess.start_game()
 
                 # send info about sessions to sessions lobby and game session lobby
                 publish_to_topic(ch, '%s.sessions.info' % SERVER_NAME, sess.info())
@@ -477,7 +485,7 @@ def on_request_shoot(ch, method, props, body):
                 else:
                     # ship sunk
                     msg = "You hit and sunk a ship."
-                    ship_coords = sess.get_ship_coords(coords)
+                    ship_coords = sess.get_ship_coordinates(coords)
 
                     publish_to_topic(ch, '%s.%s.info' % (SERVER_NAME, session_name),
                                      {'msg': "%s sunk a ship" % user_name, 'coords': ship_coords})
@@ -487,12 +495,12 @@ def on_request_shoot(ch, method, props, body):
                     if player_lost is not None:
                         publish_to_topic(ch, '%s.%s.info' % (SERVER_NAME, session_name),
                                          {'msg': "%s lost game" % player_lost, 'gameover': player_lost})
-                        if sess.players_left == 1:
+                        if len(sess.players_alive) == 1:  # if only one player alive
                             print("Game over")
                             publish_to_topic(ch, '%s.%s.info' % (SERVER_NAME, session_name),
                                              {'msg': "%s won the game" % user_name, 'gameover': user_name})
-
-                            # TODO reset game session info.
+                            # Reset session info
+                            sess.reset_session(sess)
 
                 if sess.in_game:  # in case game over, then not in_game anymore (because created new session)
 
@@ -517,3 +525,4 @@ def on_request_shoot(ch, method, props, body):
         err = str(e)
 
     publish(ch, method, props, {'err': err, 'msg': msg})
+
