@@ -63,13 +63,13 @@ def on_request_connect(ch, method, props, body):
 
     data = json.loads(body)
 
+    sessions = []
+    err = ""
+
     try:
         user_name = data['user']
 
         print("%s requested connection" % user_name)
-
-        sessions = []
-        err = ""
 
         if user_name == "info":  # username info is not allowed, because it is used as topic name.
             err = "Username \"info\" already taken."  # sending this as error to arise minimum number of questions
@@ -135,6 +135,7 @@ def on_request_create_session(ch, method, props, body):
     Client RPC request for creating new game session
     """
     data = json.loads(body)
+    map_pieces = []
 
     try:
         user_name = data['user']
@@ -143,7 +144,6 @@ def on_request_create_session(ch, method, props, body):
 
         print("%s requested session creation" % user_name)
 
-        map_pieces = []
         if session_name == "sessions":
             err = "Session name \"sessions\" is not allowed"
             print(err)
@@ -177,17 +177,17 @@ def on_request_join_session(ch, method, props, body):
     """
 
     data = json.loads(body)
+    map_pieces = []
 
     try:
         user_name = data['user']
         session_name = data['sname']
-        map_pieces = []
+        sess = SESSIONS[session_name]
 
         print("%s joining to session %s" % (user_name, session_name))
 
         if user_name in connected_users and session_name in SESSIONS:
             err = ""
-            sess = SESSIONS[session_name]
 
             # check whether spot in game session is free
             players = sess.players
@@ -234,8 +234,8 @@ def on_request_join_session(ch, method, props, body):
         print("KeyError: %s" % str(e))
         err = str(e)
 
-    if err == "" and user_name in players:  # means player joined successfully
-        other_players = players[:]
+    if err == "" and user_name in sess.players:  # means player joined successfully
+        other_players = sess.players[:]
         other_players.remove(user_name)
         other_players.remove(sess.owner)
         publish(ch, method, props, {'err': err, 'map': map_pieces, 'owner': sess.owner,
@@ -330,6 +330,7 @@ def on_request_send_ship_placement(ch, method, props, body):
     Client RPC request for sending ship placement to server. Containing coordinates of ships
     """
     data = json.loads(body)
+    err = ""
 
     try:
         user_name = data['user']
@@ -337,8 +338,6 @@ def on_request_send_ship_placement(ch, method, props, body):
         coordinates = data['coords']
 
         print("%s assigning ship coordinates" % user_name)
-
-        err = ""
 
         if user_name in connected_users and session_name in SESSIONS:
             sess = SESSIONS[session_name]
@@ -459,7 +458,7 @@ def on_request_start_game(ch, method, props, body):
 
                 # start timing out player turns if haven't got response from them in 10 seconds
                 thread_timer = CheckTurnTime(SERVER_NAME, ch, sess)
-                #thread_timer.start()
+                # thread_timer.start()
                 TIMER_THREADS[session_name] = thread_timer
 
                 print("User \"%s\" started game successfully from session %s." % (user_name, session_name))
