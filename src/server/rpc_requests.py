@@ -67,7 +67,10 @@ def on_request_connect(ch, method, props, body):
         sessions = []
         err = ""
 
-        if user_name not in connected_users:
+        if user_name == "info":  # username info is not allowed, because it is used as topic name.
+            err = "Username \"info\" already taken."  # sending this as error to arise minimum number of questions
+            print("Player tried to take info as username - not allowed")
+        elif user_name not in connected_users:
             connected_users.append(user_name)
 
             # TODO start listening for user activity, if user not active and in game then send info to session.
@@ -132,8 +135,10 @@ def on_request_create_session(ch, method, props, body):
         print("%s requested session creation" % user_name)
 
         map_pieces = []
-
-        if user_name in connected_users and session_name not in SESSIONS:
+        if session_name == "sessions":
+            err = "Session name \"sessions\" is not allowed"
+            print(err)
+        elif user_name in connected_users and session_name not in SESSIONS:
             err = ""
             sess = GameSession(session_name, player_count, user_name)
             SESSIONS[session_name] = sess
@@ -179,26 +184,36 @@ def on_request_join_session(ch, method, props, body):
             players = sess.players
             max_count = sess.max_players
 
-            #TODO check also if game not in_game, else check if user in players list (meaning reconnecting user)
-
-            if len(players) >= max_count:
-                err = "Game session \"%s\" is full." % session_name
-                print(err)
-            else:
-                if user_name not in players:
-                    players.append(user_name)
-                    map_pieces = sess.assign_pieces(user_name)
+            if sess.in_game:
+                # check whether returning user
+                if user_name in players:
+                    print("Player %s reconnects to session" % user_name)
+                    # set player back to active, so he could shoot, TODO anything else
+                    if user_name not in sess.players_active:
+                        sess.players_active.append(user_name)
                 else:
-                    pass  # TODO player already in list, meaning player tries to reconnect to game session.
-                    # TODO in this case other players already in game, should put player back to game?
-                sess.players = players
+                    err = "Can't join to already started game."
+                    print(err)
 
-                # send info about sessions to sessions lobby and game session lobby
-                publish_to_topic(ch, '%s.sessions.info' % SERVER_NAME, sess.info())
-                publish_to_topic(ch, '%s.%s.info' % (SERVER_NAME, session_name),
-                                 {'msg': "%s joined to session" % user_name})
+            else:  # in session lobby
+                if len(players) >= max_count:
+                    err = "Game session \"%s\" is full." % session_name
+                    print(err)
+                else:
+                    if user_name not in players:
+                        players.append(user_name)
+                        map_pieces = sess.assign_pieces(user_name)
+                        sess.players = players
+                        # send info about sessions to sessions lobby and game session lobby
+                        publish_to_topic(ch, '%s.sessions.info' % SERVER_NAME, sess.info())
+                        publish_to_topic(ch, '%s.%s.info' % (SERVER_NAME, session_name),
+                                         {'msg': "%s joined to session" % user_name})
 
-                print("User \"%s\" joined successfully to session %s." % (user_name, session_name))
+                        print("User \"%s\" joined successfully to session %s." % (user_name, session_name))
+                    else:
+                        err = "User with given name already in lobby"
+                        print(err)
+                        # TODO inactive users should be kicked out of lobby
 
         elif user_name not in connected_users:
             err = "Username \"%s\" is not in connected users list" % user_name
@@ -236,10 +251,14 @@ def on_request_leave_session(ch, method, props, body):
             if user_name in players:
                 # check if player was owner of session
                 if sess.owner == user_name:
-                    sess.owner = players[0]
-                    publish_to_topic(ch, '%s.%s.info' % (SERVER_NAME, session_name),
-                                     {'msg': "%s is new owner of game (last owner left)" % sess.owner,
-                                      'owner': sess.owner})
+                    # len(players) must be >= 2 because leaving player removed after if needed
+                    if len(players) >= 2:
+                        for player in players:
+                            if player != sess.owner:
+                                sess.owner = player  # add new owner
+                        publish_to_topic(ch, '%s.%s.info' % (SERVER_NAME, session_name),
+                                         {'msg': "%s is new owner of game (last owner left)" % sess.owner,
+                                          'owner': sess.owner})
 
                 if sess.in_game:  # check if in-game and only one player left (then game is finished)
                     if len(sess.players)-1 == 1:  # have not yet removed the player

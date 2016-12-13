@@ -385,6 +385,7 @@ class GameSession:
         self.battlefield = [x[:] for x in [[0] * (20 + 3)] * (self.max_players * 6 - 1)]
         self.ships_placed = []
         self.next_shot_by = self.owner
+        self.players = self.players_active  # TODO should inactive players be kicked?
         self.players_active = []
         self.players_alive = []
 
