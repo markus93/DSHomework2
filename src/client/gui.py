@@ -2,7 +2,12 @@ import Tkinter
 import tkMessageBox
 import ttk
 from protocol import *
-from gui_helpers import IntegerEntry
+from gui_helpers import IntegerEntry, GameSquare
+import re
+
+SQUARE_SIDE_LENGTH = 5
+SQUARE_BUFFER_SIZE = 1
+SQUARES_IN_A_ROW = 4
 
 
 class RootWindow(Tkinter.Tk, object):
@@ -15,11 +20,13 @@ class RootWindow(Tkinter.Tk, object):
         super(RootWindow, self).__init__()
 
         self.nickname = None
+        self.game_name = None
         self.protocol("WM_DELETE_WINDOW", self.on_exit)
 
         # Setup all the frames
         self.server_selection_frame = ServerSelectionFrame(self)
         self.lobby_frame = LobbyFrame(self)
+        self.game_setup_frame = GameSetupFrame(self)
 
         # Setup connections
         self.rpc = RPCClient(args)
@@ -35,6 +42,10 @@ class RootWindow(Tkinter.Tk, object):
 
         if self.nickname is not None:
             # We are connected to a server
+            if self.game_name is not None:
+                # We are in game
+                self.leave_game()
+
             self.leave_server()
 
         self.rpc.exit()
@@ -120,16 +131,20 @@ class RootWindow(Tkinter.Tk, object):
             return False
         else:
             self.lobby_frame.pack_forget()
-            # TODO: open the game
+            self.game_setup_frame.pack()
+
+            self.game_name = game_name
+            self.game_setup_frame.join_game(game_size, response['map'], owner=True)
 
             return True
 
-    def join_game(self, game_name):
+    def join_game(self, game_name, game_size):
         """
         Join a game on the server.
 
         Args:
             game_name (str): Name of the game
+            game_size (int): Max number of players
 
         Returns:
             bool: True if operation was a success, False on error
@@ -142,8 +157,83 @@ class RootWindow(Tkinter.Tk, object):
             return False
         else:
             self.lobby_frame.pack_forget()
-            # TODO: open the game
+            self.game_setup_frame.pack()
 
+            self.game_name = game_name
+            self.game_setup_frame.join_game(game_size, response['map'])
+
+            return True
+
+    def leave_game(self):
+        """
+        Leave the game session.
+
+        Returns:
+            bool: True if operation was a success, False on error
+        """
+
+        response = self.rpc.leave_session(user=self.nickname, sname=self.game_name)
+
+        if response['err']:
+            tkMessageBox.showerror('Error', response['err'])
+            return False
+        else:
+            self.lobby_frame.pack()
+            self.game_setup_frame.pack_forget()
+
+            self.game_name = None
+
+            return True
+
+    def ship_placement(self, coords):
+        """
+        Send ship coordinates to the server.
+
+        Args:
+            coords (list[(int, int)]):
+
+        Returns:
+            bool: True if operation was a success, False on error
+        """
+
+        response = self.rpc.send_ship_placement(user=self.nickname, sname=self.game_name, coords=coords)
+
+        if response['err']:
+            tkMessageBox.showerror('Error', response['err'])
+            return False
+        else:
+            return True
+
+    def ready(self):
+        """
+        Signal the server that the player is ready.
+
+        Returns:
+            bool: True if operation was a success, False on error
+        """
+
+        response = self.rpc.ready(user=self.nickname, sname=self.game_name)
+
+        if response['err']:
+            tkMessageBox.showerror('Error', response['err'])
+            return False
+        else:
+            return True
+
+    def start_game(self):
+        """
+        Signal the server that the game can start.
+
+        Returns:
+            bool: True if operation was a success, False on error
+        """
+
+        response = self.rpc.start_game(user=self.nickname, sname=self.game_name)
+
+        if response['err']:
+            tkMessageBox.showerror('Error', response['err'])
+            return False
+        else:
             return True
 
 
@@ -210,6 +300,8 @@ class ServerSelectionFrame(Tkinter.Frame, object):
             selected_server = self.servers_listbox.get(self.servers_listbox.curselection()[0])
         except IndexError:
             selected_server = None
+        except RuntimeError:
+            return
 
         self.servers_listbox.delete(0, Tkinter.END,)
         for i, server in enumerate(servers):
@@ -245,7 +337,7 @@ class LobbyFrame(Tkinter.Frame, object):
         Tkinter.Label(self, text='New game name:').grid(row=2, column=0)
         self.game_name_input = Tkinter.Entry(self, width=10)
         self.game_name_input.grid(row=2, column=1)
-        Tkinter.Label(self, text='Game size:').grid(row=3, column=0)
+        Tkinter.Label(self, text='Players:').grid(row=3, column=0)
         self.game_size_input = IntegerEntry(self, width=10)
         self.game_size_input.grid(row=3, column=1)
         self.new_game_button = Tkinter.Button(self, text="Start a new game", command=self.new_game)
@@ -273,8 +365,9 @@ class LobbyFrame(Tkinter.Frame, object):
 
         game_size = int(self.game_size_input.get() or '0')
 
-        if game_size < 3:
-            tkMessageBox.showerror('Error', 'Game must have atleast 3 players.')
+        if game_size < 2 or 6 < game_size:
+            tkMessageBox.showerror('Error', 'The number of players must be between 2 and 6.')
+
         else:
             self.parent.new_game(self.game_name_input.get(), game_size)
 
@@ -284,8 +377,9 @@ class LobbyFrame(Tkinter.Frame, object):
         """
 
         game_name = self.games_listbox.get(self.games_listbox.curselection()[0])
+        game_dict = re.match('(?P<name>.*) \(\d+/(?P<size>\d+)\)', game_name).groupdict()
 
-        self.parent.join_game(game_name)
+        self.parent.join_game(game_dict['name'].rstrip(), int(game_dict['size']))
 
     def toggle_join_button(self, event):
         """
@@ -308,4 +402,218 @@ class LobbyFrame(Tkinter.Frame, object):
 
         self.games_listbox.delete(0, Tkinter.END)
         for game in games_list:
-            self.games_listbox.insert(Tkinter.END, game['session_name'])
+            game_name = '{0:<15} ({1}/{2})'.format(game['session_name'], game['player_count'], game['max_count'])
+            self.games_listbox.insert(Tkinter.END, game_name)
+
+
+class GameSetupFrame(Tkinter.Frame, object):
+
+    def __init__(self, parent):
+        """
+        Displays a list of available games in server.
+        Allows to grate a new game and join existing ones.
+
+        Args:
+            parent (RootWindow):
+        """
+        super(GameSetupFrame, self).__init__(parent)
+
+        self.parent = parent
+
+        # Define and position the widgets
+
+        self.leave_game_button = Tkinter.Button(self, text="<< Leave game", command=self.leave_game)
+        self.leave_game_button.grid(row=0, column=0, columnspan=5)
+        self.start_game_button = Tkinter.Button(self, text="Start game", command=self.start_game)
+        self.reset_field_button = Tkinter.Button(self, text="Reset field", command=self.reset_field)
+
+        # Some variables
+        self.game_owner = False
+        self.game_field = [[]]
+        self.ship_coords = []
+        self.next_ships = []
+        self.game_size = None
+        self.map_pieces = None
+        self.current_ship_size = None
+        self.current_ship_start = None
+
+    def start_game(self):
+        """
+        Signal the server, that the game can start.
+        """
+        if self.parent.ship_placement(self.ship_coords):
+            self.parent.start_game()
+
+    def ready(self):
+        """
+        Signal the server, that player is ready.
+        """
+        if self.parent.ship_placement(self.ship_coords):
+            self.parent.ready()
+
+    def leave_game(self):
+        """
+        Leave the game session and clear the field.
+        """
+
+        self.parent.leave_game()
+
+        self.game_size = None
+        self.map_pieces = None
+
+        self.clear_field()
+
+    def join_game(self, game_size, map_pieces, owner=False):
+        """
+        Join the game and initialize the field
+
+        Args:
+            game_size (int): number of players
+            map_pieces (list[int]): Squares available to the player
+            owner (bool): Is the player the owner of game?
+        """
+
+        self.game_size = game_size
+        self.map_pieces = map_pieces
+        self.game_owner = owner
+        self.init_field()
+
+    def init_field(self):
+        """
+        Initialize the playing field
+        """
+
+        self.game_field = []
+        for y in range(self.game_size * SQUARE_SIDE_LENGTH + (self.game_size - 1) * SQUARE_BUFFER_SIZE):
+            game_field_row = []
+
+            for x in range(SQUARES_IN_A_ROW * SQUARE_SIDE_LENGTH + (SQUARES_IN_A_ROW - 1) * SQUARE_BUFFER_SIZE):
+
+                game_field_row.append(GameSquare(self,
+                                                 owner=self.square_n(x, y) in self.map_pieces and not self.is_buffer(x, y),
+                                                 mode=0,
+                                                 command=lambda x_=x, y_=y: self.on_click(x_, y_)))
+                game_field_row[-1].make_water()
+                game_field_row[-1].grid(row=y+1, column=x)
+
+            self.game_field.append(game_field_row)
+
+        self.next_ships = [4, 3, 3, 2, 2, 2, 1, 1, 1, 1]
+        self.reset_field_button.grid(row=0, column=SQUARES_IN_A_ROW * (SQUARE_SIDE_LENGTH + SQUARE_BUFFER_SIZE))
+
+    def clear_field(self):
+        """
+        Clear the field of all widgets.
+        """
+
+        for widgets in self.game_field:
+            for widget in widgets:
+                widget.grid_remove()
+                widget.destroy()
+
+        self.start_game_button.grid_remove()
+
+        self.next_ships = []
+        self.game_field = [[]]
+        self.ship_coords = []
+
+    def reset_field(self):
+        """
+        Clear the field and the initialize it again.
+        """
+
+        self.clear_field()
+        self.init_field()
+
+    def on_click(self, x, y):
+        """
+        Click event handler for field squares.
+
+        Args:
+            x (int): x-coordinate
+            y (int): y-coordinate
+        """
+
+        if self.current_ship_size is None:
+            # Start adding the ship
+            self.current_ship_size = self.next_ships.pop(0)
+            self.current_ship_start = x, y
+
+            # Lets turn all to false:
+            for widgets in self.game_field:
+                for widget in widgets:
+                    widget.change_state(False)
+
+            # Where can the ship end?
+            # I'l look at the four possible directions
+
+            for direction in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                pos = x, y
+
+                for i in range(1, self.current_ship_size):
+                    pos = pos[0] + direction[0], pos[1] + direction[1]
+
+                    if not self.is_mine(*pos) or not self.can_have_ship(*pos):
+                        break
+                else:
+                    self.game_field[y + direction[1]*(self.current_ship_size - 1)][x + direction[0]*(self.current_ship_size - 1)].change_state(True)
+
+            # No need to double click on same square
+            if self.current_ship_size == 1:
+                self.on_click(x, y)
+
+        else:
+            # End adding ship
+            x_min, x_max = sorted([x, self.current_ship_start[0]])
+            y_min, y_max = sorted([y, self.current_ship_start[1]])
+
+            for row in range(y_min, y_max + 1):
+                for col in range(x_min, x_max + 1):
+                    self.ship_coords.append((row, col)) # Serveril on x y teisopidi
+                    self.game_field[row][col].make_ship()
+
+            for row, widgets in enumerate(self.game_field):
+                for col, widget in enumerate(widgets):
+                    widget.change_state(self.is_mine(col, row) and self.can_have_ship(col, row))
+
+            self.current_ship_size = None
+            self.current_ship_start = None
+
+            if not self.next_ships:
+                self.placing_ships_done()
+
+    def placing_ships_done(self):
+        """
+        All ships are placed, now player can say hes ready!
+        """
+        for widgets in self.game_field:
+            for widget in widgets:
+                widget.change_state(False)
+
+        if self.game_owner:
+            self.start_game_button.grid(row=0, column=SQUARES_IN_A_ROW*(SQUARE_SIDE_LENGTH + SQUARE_BUFFER_SIZE))
+        else:
+            self.ready()
+
+        self.reset_field_button.grid_remove()
+
+    def can_have_ship(self, x, y):
+        return not any(abs(x-xs) <= 1 and abs(y-ys) <= 1 for ys, xs in self.ship_coords)
+
+    def is_mine(self, x, y):
+        return not self.is_buffer(x, y) and self.square_n(x, y) in self.map_pieces
+
+    @classmethod
+    def square_n(cls, x, y):
+        return cls.square_cord(x) + SQUARES_IN_A_ROW*cls.square_cord(y)
+
+    @staticmethod
+    def square_cord(x):
+        return x // (SQUARE_SIDE_LENGTH + SQUARE_BUFFER_SIZE)
+
+    @staticmethod
+    def is_buffer(x, y):
+        return x % (SQUARE_SIDE_LENGTH + SQUARE_BUFFER_SIZE) >= SQUARE_SIDE_LENGTH or \
+               y % (SQUARE_SIDE_LENGTH + SQUARE_BUFFER_SIZE) >= SQUARE_SIDE_LENGTH
+
+

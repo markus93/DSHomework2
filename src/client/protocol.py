@@ -2,12 +2,17 @@ import pika
 import json
 import uuid
 import time
-from threading import Thread
+from threading import Thread, Timer
+
+CONNECTION_TIMEOUT = 5
 
 
 class RPCClient(object):
 
     def __init__(self, args):
+        """
+        This class handles the RPC part. Any method called on this is sent to the server and the response is given.
+        """
 
         self.server_name = None
 
@@ -52,8 +57,12 @@ class RPCClient(object):
                                              ),
                                        body=message)
 
+            start_time = time.time()
             while self.response is None:
                 self.connection.process_data_events()
+
+                if start_time + CONNECTION_TIMEOUT < time.time():
+                    return {'err': 'Connection timed out'}
 
             return json.loads(self.response)
 
@@ -78,6 +87,7 @@ class ServersListener(Thread):
 
         # Set up the RabbitMQ stuff
         self.connection = pika.BlockingConnection(pika.ConnectionParameters(host=args.host, port=args.port))
+
         channel = self.connection.channel()
 
         channel.exchange_declare(exchange='topic_server',
@@ -90,7 +100,7 @@ class ServersListener(Thread):
                            queue=queue_name,
                            routing_key='*.info')
 
-        channel.basic_consume(self.on_anouncment,
+        channel.basic_consume(self.on_announcement,
                               queue=queue_name,
                               no_ack=True)
 
@@ -100,18 +110,22 @@ class ServersListener(Thread):
 
         self._is_running = True
         self.start()
+        self.update_servers_list()
 
     def run(self):
         while self._is_running:
-            self.connection.process_data_events(1)
+            self.connection.process_data_events()
 
     def exit(self):
         self._is_running = False
+        self.connection.close()
 
-    def on_anouncment(self, ch, method, props, body):
+    def on_announcement(self, ch, method, props, body):
+        self.servers[body] = time.time()
 
+    def update_servers_list(self):
         current_time = time.time()
-
-        self.servers[body] = current_time
-
         self.callback(server_name for server_name, last_seen in self.servers.items() if last_seen > current_time - 5)
+
+        if self._is_running:
+            Timer(1, self.update_servers_list).start()

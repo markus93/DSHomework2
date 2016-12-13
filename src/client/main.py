@@ -22,5 +22,3 @@ def client_main(args):
 
     root = RootWindow(args)
     root.mainloop()
-
-
