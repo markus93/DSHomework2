@@ -30,6 +30,9 @@ class RPCClient(object):
         self.response = None
         self.corr_id = 0
 
+        self.timer = None
+        self.keep_connection_open()
+
     def __getattr__(self, method_name):
 
         if self.server_name is None:
@@ -73,7 +76,16 @@ class RPCClient(object):
             self.response = body
 
     def exit(self):
+        self.timer.cancel()
         self.connection.close()
+
+    def keep_connection_open(self):
+        """
+        To avoid connection timeout, we must call connection.process_data_events periodically
+        """
+        self.connection.process_data_events()
+        self.timer = Timer(10, self.keep_connection_open)
+        self.timer.start()
 
 
 class BaseListener(Thread):
@@ -128,14 +140,14 @@ class BaseListener(Thread):
         pass
 
 
-class ServersListener(BaseListener):
+class GlobalListener(BaseListener):
 
     def __init__(self, args, callback):
         """
         Listen for servers announcing themselves.
         Calls callback with list of available server names.
         """
-        super(ServersListener, self).__init__('*.info', args, callback)
+        super(GlobalListener, self).__init__('*.info', args, callback)
 
         # And now the thread logic
         self.servers = {}
@@ -151,3 +163,39 @@ class ServersListener(BaseListener):
 
         if self._is_running:
             Timer(1, self.update_servers_list).start()
+
+
+class ServerListener(BaseListener):
+
+    def __init__(self, key, args, callback):
+        """
+        Listen for anouncments about the server.
+        """
+        super(ServerListener, self).__init__(key, args, callback)
+
+    def callback(self, ch, method, props, body):
+        self.external_callback(json.loads(body))
+
+
+class GameListener(BaseListener):
+
+    def __init__(self, key, args, callback):
+        """
+        Listen for anouncments about the game.
+        """
+        super(GameListener, self).__init__(key, args, callback)
+
+    def callback(self, ch, method, props, body):
+        print('game', body)
+
+
+class PlayerListener(BaseListener):
+
+    def __init__(self, key, args, callback):
+        """
+        Listen for personal anouncments about the player.
+        """
+        super(PlayerListener, self).__init__(key, args, callback)
+
+    def callback(self, ch, method, props, body):
+        print('player', body)

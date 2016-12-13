@@ -14,6 +14,8 @@ class RootWindow(Tkinter.Tk, object):
     def __init__(self, args):
         super(RootWindow, self).__init__()
 
+        self.connection_args = args
+
         self.nickname = None
         self.game_name = None
         self.protocol("WM_DELETE_WINDOW", self.on_exit)
@@ -25,7 +27,10 @@ class RootWindow(Tkinter.Tk, object):
 
         # Setup connections
         self.rpc = RPCClient(args)
-        self.servers_listener = ServersListener(args, self.update_servers_list)
+        self.global_listener = GlobalListener(args, self.update_servers_list)
+        self.server_listener = None
+        self.game_listener = None
+        self.player_listener = None
 
         # Show the first frame
         self.server_selection_frame.pack(fill=Tkinter.BOTH)
@@ -44,7 +49,14 @@ class RootWindow(Tkinter.Tk, object):
             self.leave_server()
 
         self.rpc.exit()
-        self.servers_listener.exit()
+        self.global_listener.exit()
+
+        if self.server_listener is not None:
+            self.server_listener.exit()
+        if self.game_listener is not None:
+            self.game_listener.exit()
+        if self.player_listener is not None:
+            self.player_listener.exit()
 
         self.destroy()
 
@@ -56,6 +68,18 @@ class RootWindow(Tkinter.Tk, object):
             servers (list[str]): List of server names
         """
         self.server_selection_frame.update_servers_list(servers)
+
+    def update_games_list(self, game):
+        """
+        Update the lobby about changes to the games.
+
+        Args:
+            game (dict): information about the game that changed
+
+        Returns:
+
+        """
+        self.lobby_frame.update_games_list([game])
 
     def join_server(self, server_name, nickname):
         """
@@ -82,7 +106,9 @@ class RootWindow(Tkinter.Tk, object):
             self.server_selection_frame.pack_forget()
             self.lobby_frame.pack(fill=Tkinter.BOTH)
 
-            self.lobby_frame.update_games(response['sessions'])
+            self.lobby_frame.update_games_list(response['sessions'])
+            self.server_listener = ServerListener('{0}.sessions.info'.format(self.rpc.server_name),
+                                                  self.connection_args, self.update_games_list)
 
             return True
 
@@ -104,6 +130,9 @@ class RootWindow(Tkinter.Tk, object):
 
             self.lobby_frame.pack_forget()
             self.server_selection_frame.pack(fill=Tkinter.BOTH)
+
+            self.server_listener.exit()
+            self.server_listener = None
 
             return True
 
@@ -130,6 +159,8 @@ class RootWindow(Tkinter.Tk, object):
 
             self.game_name = game_name
             self.game_setup_frame.join_game(game_size, response['map'], owner=True)
+            self.game_listener = GameListener('{0}.{1}.info'.format(self.rpc.server_name, self.game_name),
+                                              self.connection_args, None)
 
             return True
 
@@ -156,6 +187,8 @@ class RootWindow(Tkinter.Tk, object):
 
             self.game_name = game_name
             self.game_setup_frame.join_game(game_size, response['map'])
+            self.game_listener = GameListener('{0}.{1}.info'.format(self.rpc.server_name, self.game_name),
+                                              self.connection_args, None)
 
             return True
 
@@ -175,6 +208,9 @@ class RootWindow(Tkinter.Tk, object):
         else:
             self.lobby_frame.pack()
             self.game_setup_frame.pack_forget()
+
+            self.game_listener.exit()
+            self.game_listener = None
 
             self.game_name = None
 
@@ -345,6 +381,9 @@ class LobbyFrame(Tkinter.Frame, object):
         self.games_listbox.bind('<<ListboxSelect>>', self.toggle_join_button)
         self.games_listbox.grid(row=3, column=3, rowspan=5)
 
+        # Other varaibles
+        self.games_list = []
+
     def leave_server(self):
         """
         Return to the server selection frame.
@@ -386,7 +425,7 @@ class LobbyFrame(Tkinter.Frame, object):
         else:
             self.join_game_button.configure(state=Tkinter.DISABLED)
 
-    def update_games(self, games_list):
+    def update_games_list(self, games_list):
         """
         Update the list of games on this server.
 
@@ -395,8 +434,23 @@ class LobbyFrame(Tkinter.Frame, object):
 
         """
 
+        new_games_list = []
+        for new_game in games_list:
+            for game in self.games_list:
+                if new_game['session_name'] == game['session_name']:
+                    if new_game['player_count'] == 0:
+                        # Delete the game
+                        break
+                    else:
+                        new_games_list.append(new_game)
+                        break
+            else:
+                new_games_list.append(new_game)
+
+        self.games_list = new_games_list
+
         self.games_listbox.delete(0, Tkinter.END)
-        for game in games_list:
+        for game in self.games_list:
             game_name = '{0:<15} ({1}/{2})'.format(game['session_name'], game['player_count'], game['max_count'])
             self.games_listbox.insert(Tkinter.END, game_name)
 
@@ -416,7 +470,7 @@ class GameSetupFrame(BaseGameFrame):
         # Define and position the widgets
 
         self.leave_game_button = Tkinter.Button(self, text="<< Leave game", command=self.leave_game)
-        self.leave_game_button.grid(row=0, column=0, columnspan=5)
+        self.leave_game_button.grid(row=0, column=0, columnspan=10)
         self.start_game_button = Tkinter.Button(self, text="Start game", command=self.start_game)
         self.reset_field_button = Tkinter.Button(self, text="Reset field", command=self.reset_field)
 
