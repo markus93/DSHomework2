@@ -100,7 +100,6 @@ class ServerAnnouncements(Thread):
 
     def run(self):
         while self._is_running:
-            while True:
-                self.channel.basic_publish(exchange='topic_server', routing_key='%s.info' % self.server_name,
-                                           body=self.server_name)
-                time.sleep(1)
+            self.channel.basic_publish(exchange='topic_server', routing_key='%s.info' % self.server_name,
+                                       body=self.server_name)
+            time.sleep(1)

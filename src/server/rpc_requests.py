@@ -5,6 +5,7 @@
 import json
 import pika
 from gamesession import *
+from threading import Thread
 
 # Variables
 
@@ -70,6 +71,9 @@ def on_request_connect(ch, method, props, body):
         if user_name == "info":  # username info is not allowed, because it is used as topic name.
             err = "Username \"info\" already taken."  # sending this as error to arise minimum number of questions
             print("Player tried to take info as username - not allowed")
+        elif user_name == "":
+            err = "User cannot have empty name"
+            print(err)
         elif user_name not in connected_users:
             connected_users.append(user_name)
 
@@ -207,7 +211,7 @@ def on_request_join_session(ch, method, props, body):
                         # send info about sessions to sessions lobby and game session lobby
                         publish_to_topic(ch, '%s.sessions.info' % SERVER_NAME, sess.info())
                         publish_to_topic(ch, '%s.%s.info' % (SERVER_NAME, session_name),
-                                         {'msg': "%s joined to session" % user_name})
+                                         {'msg': "%s joined to session" % user_name, 'joined': user_name})
 
                         print("User \"%s\" joined successfully to session %s." % (user_name, session_name))
                     else:
@@ -280,15 +284,14 @@ def on_request_leave_session(ch, method, props, body):
                     if len(players)-1 == 0:  # no players left in session - delete session
                         msg = "Game session %s is empty, session deleted" % session_name
                         print(msg)
-                        # TODO special msg for this, or just client checks whether player_count == 0
-                        del SESSIONS[session_name]
+                        sess.players = []
+                        del SESSIONS[session_name]  # TODO sess can still be accessed?
                     else:  # otherwise clean user info, and send message about leaving lobby
                         sess.clean_player_info(user_name)
                         publish_to_topic(ch, '%s.%s.info' % (SERVER_NAME, session_name),
-                                         {'msg': "%s left from session" % user_name})
+                                         {'msg': "%s left from session" % user_name, 'left': user_name})
                     # refresh sessions list
                     publish_to_topic(ch, '%s.sessions.info' % SERVER_NAME, sess.info())
-                    # TODO client should understand whether session is there anymore
 
                 print("User \"%s\" left successfully from session %s." % (user_name, session_name))
             else:
@@ -441,9 +444,6 @@ def on_request_start_game(ch, method, props, body):
                                  {'msg': "%s started game and has first shot" % user_name,
                                   'active': sess.in_game, 'next': user_name})  # atm owner gets the first shot
 
-                # TODO how to send info to players about game starting - is there better method,
-                # TODO this way client should always check whether msg contains key 'active'.
-
                 # TODO start timing out players turns if haven't got response from them in 10 seconds
 
                 print("User \"%s\" started game successfully from session %s." % (user_name, session_name))
@@ -550,4 +550,33 @@ def on_request_shoot(ch, method, props, body):
 
     publish(ch, method, props, {'err': err, 'msg': msg})
 
-#class
+
+class CheckTurnTime(Thread):
+    """
+    Thread for checking whether server have received response from player in time.
+    """
+    def __init__(self, server_name, channel, session):
+        """
+        Publish server's name after every second in order to show that server is active.
+        @param server_name:
+        @type server_name: str
+        @param channel:
+        @type channel: BlockingConnection.channel
+        @param session:
+        @type session: GameSession
+        """
+        super(CheckTurnTime, self).__init__()
+        self.server_name = server_name
+        self.channel = channel
+        self.sess = session
+        self._is_running = True
+
+    def run(self):
+        while self._is_running:
+            if self.sess.in_game:
+                next_player = self.sess.get_next_player()
+                publish_to_topic(self.channel, '%s.%s.info' % (SERVER_NAME, self.sess.session_name),
+                                 {'msg': "%s's turn." % next_player, 'next': next_player})  # not 'coords' sent
+            else:
+                self._is_running = False
+
