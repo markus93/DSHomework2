@@ -76,14 +76,18 @@ class RPCClient(object):
         self.connection.close()
 
 
-class ServersListener(Thread):
+class BaseListener(Thread):
 
-    def __init__(self, args, callback):
+    def __init__(self, key, args, callback):
         """
-        Listen for servers announcing themselves.
-        Calls callback with list of available server names.
+        Baseclass for listeners.
+
+        Args:
+            key (str): Name of rabbitmq key that to listen for
+            args:
+            callback: External callback function to call after reciveing from server(s).
         """
-        super(ServersListener, self).__init__()
+        super(BaseListener, self).__init__()
 
         # Set up the RabbitMQ stuff
         self.connection = pika.BlockingConnection(pika.ConnectionParameters(host=args.host, port=args.port))
@@ -98,19 +102,16 @@ class ServersListener(Thread):
 
         channel.queue_bind(exchange='topic_server',
                            queue=queue_name,
-                           routing_key='*.info')
+                           routing_key=key)
 
-        channel.basic_consume(self.on_announcement,
+        channel.basic_consume(self.callback,
                               queue=queue_name,
                               no_ack=True)
 
         # And now the thread logic
-        self.servers = {}
-        self.callback = callback
-
+        self.external_callback = callback
         self._is_running = True
         self.start()
-        self.update_servers_list()
 
     def run(self):
         while self._is_running:
@@ -120,12 +121,33 @@ class ServersListener(Thread):
         self._is_running = False
         self.connection.close()
 
-    def on_announcement(self, ch, method, props, body):
+    def callback(self, ch, method, props, body):
+        """
+        Override this
+        """
+        pass
+
+
+class ServersListener(BaseListener):
+
+    def __init__(self, args, callback):
+        """
+        Listen for servers announcing themselves.
+        Calls callback with list of available server names.
+        """
+        super(ServersListener, self).__init__('*.info', args, callback)
+
+        # And now the thread logic
+        self.servers = {}
+        self.update_servers_list()
+
+    def callback(self, ch, method, props, body):
         self.servers[body] = time.time()
 
     def update_servers_list(self):
         current_time = time.time()
-        self.callback(server_name for server_name, last_seen in self.servers.items() if last_seen > current_time - 5)
+        self.external_callback(server_name for server_name, last_seen in self.servers.items()
+                               if last_seen > current_time - 5)
 
         if self._is_running:
             Timer(1, self.update_servers_list).start()

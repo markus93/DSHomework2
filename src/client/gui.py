@@ -1,13 +1,8 @@
-import Tkinter
 import tkMessageBox
 import ttk
-from protocol import *
-from gui_helpers import IntegerEntry, GameSquare
 import re
-
-SQUARE_SIDE_LENGTH = 5
-SQUARE_BUFFER_SIZE = 1
-SQUARES_IN_A_ROW = 4
+from protocol import *
+from gui_helpers import *
 
 
 class RootWindow(Tkinter.Tk, object):
@@ -406,7 +401,7 @@ class LobbyFrame(Tkinter.Frame, object):
             self.games_listbox.insert(Tkinter.END, game_name)
 
 
-class GameSetupFrame(Tkinter.Frame, object):
+class GameSetupFrame(BaseGameFrame):
 
     def __init__(self, parent):
         """
@@ -418,8 +413,6 @@ class GameSetupFrame(Tkinter.Frame, object):
         """
         super(GameSetupFrame, self).__init__(parent)
 
-        self.parent = parent
-
         # Define and position the widgets
 
         self.leave_game_button = Tkinter.Button(self, text="<< Leave game", command=self.leave_game)
@@ -430,11 +423,8 @@ class GameSetupFrame(Tkinter.Frame, object):
         # Some variables
         self.game_owner = False
         self.game_field = [[]]
-        self.ship_coords = []
         self.next_ships = []
-        self.game_size = None
-        self.map_pieces = None
-        self.current_ship_size = None
+        self.current_ship_size = -1
         self.current_ship_start = None
 
     def start_game(self):
@@ -450,18 +440,6 @@ class GameSetupFrame(Tkinter.Frame, object):
         """
         if self.parent.ship_placement(self.ship_coords):
             self.parent.ready()
-
-    def leave_game(self):
-        """
-        Leave the game session and clear the field.
-        """
-
-        self.parent.leave_game()
-
-        self.game_size = None
-        self.map_pieces = None
-
-        self.clear_field()
 
     def join_game(self, game_size, map_pieces, owner=False):
         """
@@ -483,20 +461,7 @@ class GameSetupFrame(Tkinter.Frame, object):
         Initialize the playing field
         """
 
-        self.game_field = []
-        for y in range(self.game_size * SQUARE_SIDE_LENGTH + (self.game_size - 1) * SQUARE_BUFFER_SIZE):
-            game_field_row = []
-
-            for x in range(SQUARES_IN_A_ROW * SQUARE_SIDE_LENGTH + (SQUARES_IN_A_ROW - 1) * SQUARE_BUFFER_SIZE):
-
-                game_field_row.append(GameSquare(self,
-                                                 owner=self.square_n(x, y) in self.map_pieces and not self.is_buffer(x, y),
-                                                 mode=0,
-                                                 command=lambda x_=x, y_=y: self.on_click(x_, y_)))
-                game_field_row[-1].make_water()
-                game_field_row[-1].grid(row=y+1, column=x)
-
-            self.game_field.append(game_field_row)
+        super(GameSetupFrame, self).init_field()
 
         self.next_ships = [4, 3, 3, 2, 2, 2, 1, 1, 1, 1]
         self.reset_field_button.grid(row=0, column=SQUARES_IN_A_ROW * (SQUARE_SIDE_LENGTH + SQUARE_BUFFER_SIZE))
@@ -506,24 +471,12 @@ class GameSetupFrame(Tkinter.Frame, object):
         Clear the field of all widgets.
         """
 
-        for widgets in self.game_field:
-            for widget in widgets:
-                widget.grid_remove()
-                widget.destroy()
+        super(GameSetupFrame, self).clear_field()
 
         self.start_game_button.grid_remove()
-
         self.next_ships = []
-        self.game_field = [[]]
-        self.ship_coords = []
-
-    def reset_field(self):
-        """
-        Clear the field and the initialize it again.
-        """
-
-        self.clear_field()
-        self.init_field()
+        self.current_ship_size = -1
+        self.current_ship_start = None
 
     def on_click(self, x, y):
         """
@@ -534,7 +487,7 @@ class GameSetupFrame(Tkinter.Frame, object):
             y (int): y-coordinate
         """
 
-        if self.current_ship_size is None:
+        if self.current_ship_size == -1:
             # Start adding the ship
             self.current_ship_size = self.next_ships.pop(0)
             self.current_ship_start = x, y
@@ -553,7 +506,7 @@ class GameSetupFrame(Tkinter.Frame, object):
                 for i in range(1, self.current_ship_size):
                     pos = pos[0] + direction[0], pos[1] + direction[1]
 
-                    if not self.is_mine(*pos) or not self.can_have_ship(*pos):
+                    if not self.can_have_my_ship(*pos):
                         break
                 else:
                     self.game_field[y + direction[1]*(self.current_ship_size - 1)][x + direction[0]*(self.current_ship_size - 1)].change_state(True)
@@ -569,14 +522,14 @@ class GameSetupFrame(Tkinter.Frame, object):
 
             for row in range(y_min, y_max + 1):
                 for col in range(x_min, x_max + 1):
-                    self.ship_coords.append((row, col)) # Serveril on x y teisopidi
+                    self.ship_coords.append((row, col)) # Serveril on x y teisipidi
                     self.game_field[row][col].make_ship()
 
             for row, widgets in enumerate(self.game_field):
                 for col, widget in enumerate(widgets):
                     widget.change_state(self.is_mine(col, row) and self.can_have_ship(col, row))
 
-            self.current_ship_size = None
+            self.current_ship_size = -1
             self.current_ship_start = None
 
             if not self.next_ships:
@@ -596,24 +549,3 @@ class GameSetupFrame(Tkinter.Frame, object):
             self.ready()
 
         self.reset_field_button.grid_remove()
-
-    def can_have_ship(self, x, y):
-        return not any(abs(x-xs) <= 1 and abs(y-ys) <= 1 for ys, xs in self.ship_coords)
-
-    def is_mine(self, x, y):
-        return not self.is_buffer(x, y) and self.square_n(x, y) in self.map_pieces
-
-    @classmethod
-    def square_n(cls, x, y):
-        return cls.square_cord(x) + SQUARES_IN_A_ROW*cls.square_cord(y)
-
-    @staticmethod
-    def square_cord(x):
-        return x // (SQUARE_SIDE_LENGTH + SQUARE_BUFFER_SIZE)
-
-    @staticmethod
-    def is_buffer(x, y):
-        return x % (SQUARE_SIDE_LENGTH + SQUARE_BUFFER_SIZE) >= SQUARE_SIDE_LENGTH or \
-               y % (SQUARE_SIDE_LENGTH + SQUARE_BUFFER_SIZE) >= SQUARE_SIDE_LENGTH
-
-
