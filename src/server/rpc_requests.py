@@ -255,7 +255,10 @@ def on_request_join_session(ch, method, props, body):
     elif err == "" and user_name in sess.players:  # means player joined successfully
         other_players = sess.players[:]
         other_players.remove(user_name)
-        other_players.remove(sess.owner)
+        if sess.owner in other_players:
+            other_players.remove(sess.owner)
+        else:
+            print("Owner not in players list?! (line 261)")
         publish(ch, method, props, {'err': err, 'map': map_pieces, 'owner': sess.owner,
                                     'players': other_players, 'ready': sess.players_ready})
     else:
@@ -282,10 +285,14 @@ def on_request_leave_session(ch, method, props, body):
             # remove player and ships
             players = sess.players
             if user_name in players:
+
+                # clean player info
+                sess.clean_player_info(user_name)
+
                 # check if player was owner of session
                 if sess.owner == user_name:
-                    # len(players) must be >= 2 because leaving player removed after if needed
-                    if len(players) >= 2:
+                    # len(players) must be >= 1 otherwise no other players left
+                    if len(players) >= 1:
                         for player in players:
                             if player != sess.owner:
                                 sess.owner = player  # add new owner
@@ -293,11 +300,8 @@ def on_request_leave_session(ch, method, props, body):
                                          {'msg': "%s is new owner of game (last owner left)" % sess.owner,
                                           'owner': sess.owner})
 
-                # clean player info
-                sess.clean_player_info(user_name)
-
                 if sess.in_game:  # check if in-game and only one player left (then game is finished)
-                    if len(sess.players)-1 == 1:  # have not yet removed the player
+                    if len(sess.players) == 1:
                         print "Game over, only one player left in game."
                         publish_to_topic(ch, '%s.%s.%s' % (SERVER_NAME, session_name, players[0]),  # message to winner
                                          {'msg': 'You won! (other players left)'})
@@ -313,7 +317,7 @@ def on_request_leave_session(ch, method, props, body):
                         publish_to_topic(ch, '%s.%s.info' % (SERVER_NAME, session_name),
                                          {'msg': "%s ships removed" % user_name, 'empty_map': map_empty})
                 else:  # in lobby
-                    if len(players)-1 == 0:  # no players left in session - delete session
+                    if len(players) == 0:  # no players left in session - delete session
                         msg = "Game session %s is empty, session deleted" % session_name
                         print(msg)
                         del SESSIONS[session_name]  # only dict key deleted
