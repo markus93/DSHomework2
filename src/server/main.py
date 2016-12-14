@@ -25,17 +25,27 @@ def server_main(args):
     Call this method to set up and start server
     """
 
-    # Initialize connection with mq
-    channel = init_connection_to_mq(args)
+    # Initialize connection with mq, TODO save server info upon closing
+    try:
+        channel, connection = init_connection_to_mq(args)
 
-    # Start announcing server name to topic_server (so client could check whether server is online)
-    server_announcements_thread = ServerAnnouncements(args.name, channel)
-    server_announcements_thread.start()
+        # Start announcing server name to topic_server (so client could check whether server is online)
+        server_announcements_thread = ServerAnnouncements(args.name, channel)
+        server_announcements_thread.start()
 
-    print "Server %s is up and running" % args.name
+        print "Server %s is up and running" % args.name
 
-    # Start consuming client RPC-s
-    channel.start_consuming()
+        # Start consuming client RPC-s
+        channel.start_consuming()
+    except (KeyboardInterrupt, SystemExit):
+        # On Windows we don't make it to here :(
+        print('Shutting down...')
+
+    except Exception as e:
+        print('Error occured: shutting down...')
+        raise e
+    finally:
+        connection.close()
 
 
 def init_connection_to_mq(args):
@@ -46,7 +56,7 @@ def init_connection_to_mq(args):
     server_name = args.name  # TODO server name should be unique
     rpc_requests.SERVER_NAME = server_name  # add server name also to rpc_request variables
 
-    connection = pika.BlockingConnection(pika.ConnectionParameters(  # TODO try connecting to MQ if possible
+    connection = pika.BlockingConnection(pika.ConnectionParameters(
         host=args.host, port=args.port))
 
     channel = connection.channel()
@@ -77,8 +87,8 @@ def init_connection_to_mq(args):
 
     # using exchange topic_server to send information about server and game sessions of server
     channel.exchange_declare(exchange='topic_server', type='topic')
-    
-    return channel
+
+    return channel, connection
 
 
 class ServerAnnouncements(Thread):

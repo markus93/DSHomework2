@@ -90,7 +90,7 @@ def on_request_connect(ch, method, props, body):
 
             # TODO start listening for user activity, if user not active and in game then send info to session.
             # TODO kick player from server if inactive (but should be left in game, in order to reconnect to game)
-            # TODO inactive users should be kicked out of lobby
+            # TODO inactive users should be kicked out of lobby if not in game else changed to inactive
 
             # Get sessions info
             for key in SESSIONS.keys():
@@ -488,8 +488,7 @@ def on_request_start_game(ch, method, props, body):
                     err = "Only one player in game."
                 print err
                 publish_to_topic(ch, '%s.%s.info' % (SERVER_NAME, session_name),
-                                 {'msg': "%s tried to start game - " + err
-                                         % user_name})
+                                 {'msg': ("%s tried to start game - " % user_name) + err})
 
         elif user_name not in connected_users:
             err = "Username \"%s\" is not in connected users list" % user_name
