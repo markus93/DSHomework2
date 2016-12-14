@@ -63,12 +63,12 @@ class GameSession:
             return 0
         elif result == 2:  # ship, not shot
             self.battlefield[x][y] = 1
-            if self.check_ship_sunk(x,y):
+            if self.check_ship_sunk(x, y):
                 return 2
             else:
                 return 1
         else:
-            print("Square [%d,%d] was already shot" % (x,y))
+            print("Square [%d,%d] was already shot" % (x, y))
             return 0  # miss, however spot was already shot
 
     def check_end_game(self):
@@ -87,7 +87,7 @@ class GameSession:
         for x in range(0, max_x):
             for y in range(0, max_y):
                 if self.battlefield[x][y] == 2:
-                    owner = self.get_ship_owner([x,y])
+                    owner = self.get_ship_owner([x, y])
                     if owner not in list_players_left:
                         list_players_left.append(owner)
 
@@ -111,7 +111,6 @@ class GameSession:
 
         # All ship parts been shot at
         return True
-
 
     def get_next_player(self):
         """
@@ -258,8 +257,6 @@ class GameSession:
 
         # TODO check if ship placement is valid - are right ships assigned and placed right way in right map pieces
 
-        #print ship_map
-
         self.battlefield = ship_map
 
         if user_name not in self.ships_placed:
@@ -318,8 +315,6 @@ class GameSession:
 
         piece_nr = piece_in_column*4 + piece_in_row  # every column has 4 pieces (column nr start from zero)
         # and then added piece number of row
-
-        #print("Piece number %d" % piece_in_row)
 
         owner_of_square = None
 
@@ -385,9 +380,39 @@ class GameSession:
         self.battlefield = [x[:] for x in [[0] * (20 + 3)] * (self.max_players * 6 - 1)]
         self.ships_placed = []
         self.next_shot_by = self.owner
-        self.players = self.players_active  # TODO should inactive players be kicked?
+        self.players = self.players_active  # TODO reconnecting players should still be able to see that game is over
         self.players_active = []
         self.players_alive = []
+
+    def get_player_battlefield(self, user_name):
+        """
+        Returns battlefield showing only user ships and coordinates that are already shot
+        Args:
+            user_name (str) : Name of player (user)
+        Returns:
+             list[list[int]]: matrix of battlefield, meant for reconnecting user
+        """
+
+        map_pieces = self.get_map_pieces(user_name)
+        player_battlefield = []
+
+        return []
+
+        # go through battlefield, replace 1 with -1 and 2 with 0 only if they are not on player piece
+        for x in range(0, len(self.battlefield)):
+            for y in range(0, len(self.battlefield[0])):
+                pass
+
+        # clear player assigned map pieces
+        for p in map_pieces:  # piece 0 - 0..4, 6..10, 12..16, 18..22
+            column_start = p % 4 * 6  # 4 pieces in row, 5 elements + 1 in piece (1 buffer element)
+            row_start = p // 4 * 6  # divided by 4 pieces in row
+
+            for i in range(column_start, column_start + 5):  # 5 elements in piece
+                for j in range(row_start, row_start + 5):
+                    pass
+                    #player_battlefield[j][i] = 0
+
 
 
 def divide_map_pieces(number_of_players, pieces_per_player):

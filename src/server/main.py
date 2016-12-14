@@ -77,7 +77,7 @@ def init_connection_to_mq(args):
 
     # using exchange topic_server to send information about server and game sessions of server
     channel.exchange_declare(exchange='topic_server', type='topic')
-
+    
     return channel
 
 

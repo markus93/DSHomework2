@@ -31,7 +31,6 @@ if __name__ == '__main__':
                         default=DEFAULT_MQ_PORT)
     parser.add_argument('-n', '--name', type=str, \
                         help='Name of Game Server')
-    # TODO Add server name as argument
     args = parser.parse_args()
 
     # Run Server main method

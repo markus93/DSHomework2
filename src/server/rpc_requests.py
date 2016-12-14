@@ -24,6 +24,9 @@ def publish(ch, method, props, rsp):
     Publish response to client RPC call
 
     Args:
+        ch (channel): channel used to publish messages to RabbitMQ
+        method (method_frame): used to get delivery tag for acknowledging
+        props (header_frame): used to get reply_to routing key and correlation id
         rsp (dict): dictionary containing response to client
     """
 
@@ -42,6 +45,7 @@ def publish_to_topic(ch, key, rsp):
     Messages about in-game, game session lobby activities
 
     Args:
+        ch (channel): channel used to publish messages to RabbitMQ
         key (str): routing key of published message
         rsp (dict): dictionary containing response to client
     """
@@ -58,6 +62,9 @@ def on_request_connect(ch, method, props, body):
     Publishes response to request to MQ sent by client
 
     Args:
+        ch (channel): channel used to publish messages to RabbitMQ
+        method (method_frame): used to get delivery tag for acknowledging
+        props (header_frame): used to get reply_to routing key and correlation id
         body (json.dumps): json data dumps containing arguments needed for given method
     """
 
@@ -183,6 +190,7 @@ def on_request_join_session(ch, method, props, body):
         user_name = data['user']
         session_name = data['sname']
         sess = SESSIONS[session_name]
+        battlefield = []
 
         print("%s joining to session %s" % (user_name, session_name))
 
@@ -197,7 +205,8 @@ def on_request_join_session(ch, method, props, body):
                 # check whether reconnecting user
                 if user_name in players:
                     print("Player %s reconnects to session" % user_name)
-                    # set player back to active, so he could shoot, TODO anything else
+                    # set player back to active, so he could shoot, TODO send back battlefield showing only his ships
+                    battlefield = sess.get_player_battlefield(user_name)
                     if user_name not in sess.players_active:
                         sess.players_active.append(user_name)
                 else:
@@ -233,6 +242,8 @@ def on_request_join_session(ch, method, props, body):
     except KeyError as e:
         print("KeyError: %s" % str(e))
         err = str(e)
+
+    # TODO add response specified for reconnecting player (own pieces, overall map)
 
     if err == "" and user_name in sess.players:  # means player joined successfully
         other_players = sess.players[:]
@@ -283,6 +294,10 @@ def on_request_leave_session(ch, method, props, body):
                         publish_to_topic(ch, '%s.%s.info' % (SERVER_NAME, session_name),
                                          {'msg': "%s won the game" % players[0],
                                           'gameover': players[0]})  # msg to session
+                        # TODO should forward back to lobby
+                        # only active players left into lobby, other players are kicked
+                        if user_name in sess.players_active:
+                            sess.players_active.remove(user_name)
 
                         sess.reset_session()
                     else:  # otherwise send other players map where is no ships
@@ -407,7 +422,7 @@ def on_request_ready(ch, method, props, body):
 
             # send info about sessions to sessions lobby and game session lobby
             publish_to_topic(ch, '%s.%s.info' % (SERVER_NAME, session_name),
-                             {'msg': msg})
+                             {'msg': msg, 'ready': user_name})
             # acknowledge client of player ready state
 
             print("User \"%s\" set successfully ready state" % user_name)
@@ -458,7 +473,7 @@ def on_request_start_game(ch, method, props, body):
 
                 # start timing out player turns if haven't got response from them in 10 seconds
                 thread_timer = CheckTurnTime(SERVER_NAME, ch, sess)
-                # thread_timer.start()
+                # thread_timer.start()  # TODO test this
                 TIMER_THREADS[session_name] = thread_timer
 
                 print("User \"%s\" started game successfully from session %s." % (user_name, session_name))
@@ -508,7 +523,7 @@ def on_request_shoot(ch, method, props, body):
 
             if sess.next_shot_by == user_name:
 
-                TIMER_THREADS[session_name].turn_start_time = time()  # restart timer
+                TIMER_THREADS[session_name].turn_start_time = time()  # restart timer # TODO lock thread?
 
                 res = sess.check_shot(coords)  # 0-miss, 1-hit, 2-sunk (refactor to enum)
 
@@ -569,6 +584,9 @@ def on_request_shoot(ch, method, props, body):
         err = str(e)
 
     publish(ch, method, props, {'err': err, 'msg': msg})
+
+    # TODO on_request_spectator - returns spectator info or returns all info on gameover?
+    # TODO So player could see all the map
 
 
 class CheckTurnTime(Thread):
