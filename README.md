@@ -1,2 +1,2 @@
 # DSHomework2
-Multiplayer battleshit over indirect communication
+Multiplayer battleship over indirect communication
