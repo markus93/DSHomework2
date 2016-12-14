@@ -74,7 +74,7 @@ class GameSessionTests(TestCase):
         coords2 = [[6, 0], [6, 1], [6, 2], [6, 3], [8, 7], [9, 7]]
         self.sess.place_ships(self.player, coords2)
 
-        res = self.sess.check_shot([5,0])
+        res = self.sess.check_shot([5, 0])
         self.assertEqual(0, res)
 
         res = self.sess.check_shot([8, 7])
@@ -106,7 +106,6 @@ class GameSessionTests(TestCase):
         rsp = self.sess.check_end_game()
         self.assertEqual(rsp, self.player)
 
-
     def test_get_next_player(self):
         # test whether selecting next player works as intended
 
@@ -131,3 +130,37 @@ class GameSessionTests(TestCase):
         next = self.sess.get_next_player()
         self.assertEqual(next, self.owner)
 
+    def test_get_player_battlefield(self):
+
+        self.sess.assign_pieces(self.player)
+
+        print("Testing getting player battlefield.")
+
+        coords = [[0, 0], [0, 1], [0, 2], [0, 3], [2, 7], [3, 7], [4, 0], [4, 4]]
+        coords2 = [[6, 0], [6, 1], [6, 2], [6, 3], [8, 7], [9, 7]]
+
+        self.sess.place_ships(self.owner, coords)
+        self.sess.place_ships(self.player, coords2)
+
+        # shots on owner field
+        self.sess.check_shot([4, 1])
+        self.sess.check_shot([0, 1])
+        # shots on player field
+        self.sess.check_shot([8, 7])
+        self.sess.check_shot([9, 7])
+
+        player_field = self.sess.get_player_battlefield(self.owner)
+
+        test_field = [[2, 1, 2, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                       [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                       [0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                       [0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                       [2, -1, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                       [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                       [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                       [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                       [0, 0, 0, 0, 0, 0, 0, -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                       [0, 0, 0, 0, 0, 0, 0, -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                       [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]]
+
+        self.assertEqual(player_field, test_field)

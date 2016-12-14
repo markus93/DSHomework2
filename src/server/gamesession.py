@@ -308,13 +308,7 @@ class GameSession:
         x = coords[0]
         y = coords[1]
 
-        # get which piece from row, 0th, 1st, 2nd, 3rd
-        piece_in_row = y // 6  # divided by 6 because each piece have 6 squares (except last)
-        # get piece number in column
-        piece_in_column = x // 6
-
-        piece_nr = piece_in_column*4 + piece_in_row  # every column has 4 pieces (column nr start from zero)
-        # and then added piece number of row
+        piece_nr = self.get_piece_nr(x,y)
 
         owner_of_square = None
 
@@ -386,7 +380,8 @@ class GameSession:
 
     def get_player_battlefield(self, user_name):
         """
-        Returns battlefield showing only user ships and coordinates that are already shot
+        Gives back battlefield showing only user ships and coordinates that are already shot
+
         Args:
             user_name (str) : Name of player (user)
         Returns:
@@ -394,25 +389,46 @@ class GameSession:
         """
 
         map_pieces = self.get_map_pieces(user_name)
-        player_battlefield = []
-
-        return []
+        player_battlefield = [x[:] for x in [[]] * (self.max_players * 6 - 1)]
 
         # go through battlefield, replace 1 with -1 and 2 with 0 only if they are not on player piece
         for x in range(0, len(self.battlefield)):
             for y in range(0, len(self.battlefield[0])):
-                pass
+                piece_nr = self.get_piece_nr(x, y)
+                if piece_nr in map_pieces:  # player map piece, can show ships and stuff
+                    player_battlefield[x].append(self.battlefield[x][y])
+                else:  # opponents map pieces, hide ships and hits
+                    value = self.battlefield[x][y]
+                    if value == 1:
+                        value = -1
+                    elif value == 2:
+                        value = 0
 
-        # clear player assigned map pieces
-        for p in map_pieces:  # piece 0 - 0..4, 6..10, 12..16, 18..22
-            column_start = p % 4 * 6  # 4 pieces in row, 5 elements + 1 in piece (1 buffer element)
-            row_start = p // 4 * 6  # divided by 4 pieces in row
+                    player_battlefield[x].append(value)
 
-            for i in range(column_start, column_start + 5):  # 5 elements in piece
-                for j in range(row_start, row_start + 5):
-                    pass
-                    #player_battlefield[j][i] = 0
+        return player_battlefield
 
+    @staticmethod
+    def get_piece_nr(x, y):
+        """
+        Gets map piece number to which given coordinate belongs to
+
+        Args:
+            x (int): x coordinate of battlefield (row number)
+            y (int): y coordinate of battlefield (column number)
+        Returns:
+            int: Number to which map piece given coordinate belongs to
+        """
+
+        # get which piece from row, 0th, 1st, 2nd, 3rd
+        piece_nr_row = y // 6  # divided by 6 because each piece have 6 squares (except last)
+        # get on which column player assigned piece is (6 squares per piece)
+        piece_nr_column = x // 6
+
+        piece_nr = piece_nr_column * 4 + piece_nr_row  # every column has 4 pieces (column nr start from zero)
+        # and then added piece number of row
+
+        return piece_nr
 
 
 def divide_map_pieces(number_of_players, pieces_per_player):

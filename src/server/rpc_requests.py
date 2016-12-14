@@ -5,7 +5,7 @@
 import json
 import pika
 from gamesession import *
-from threading import Thread
+from threading import Thread, Lock
 from time import time, sleep
 
 # Variables
@@ -17,6 +17,7 @@ SESSIONS = {}
 SERVER_NAME = "unnamed"
 TIMER_THREADS = {}
 """@type: dict[str, CheckTurnTime]"""
+TIMER_LOCK = Lock()
 
 
 def publish(ch, method, props, rsp):
@@ -205,10 +206,13 @@ def on_request_join_session(ch, method, props, body):
                 # check whether reconnecting user
                 if user_name in players:
                     print("Player %s reconnects to session" % user_name)
-                    # set player back to active, so he could shoot, TODO send back battlefield showing only his ships
+                    # set player back to active, so he could shoot, send back battlefield showing only his ships
                     battlefield = sess.get_player_battlefield(user_name)
                     if user_name not in sess.players_active:
                         sess.players_active.append(user_name)
+
+                    publish_to_topic(ch, '%s.%s.info' % (SERVER_NAME, session_name),
+                                     {'msg': "%s reconnected to session" % user_name, 'joined': user_name})
                 else:
                     err = "Can't join to already started game."
                     print(err)
@@ -243,9 +247,12 @@ def on_request_join_session(ch, method, props, body):
         print("KeyError: %s" % str(e))
         err = str(e)
 
-    # TODO add response specified for reconnecting player (own pieces, overall map)
+    # response to player
+    if err == "" and sess.in_game:  # reconnecting user
+        publish(ch, method, props, {'err': err, 'map': map_pieces, 'battlefield': battlefield,
+                                    'next': sess.next_shot_by})
 
-    if err == "" and user_name in sess.players:  # means player joined successfully
+    elif err == "" and user_name in sess.players:  # means player joined successfully
         other_players = sess.players[:]
         other_players.remove(user_name)
         other_players.remove(sess.owner)
@@ -286,6 +293,9 @@ def on_request_leave_session(ch, method, props, body):
                                          {'msg': "%s is new owner of game (last owner left)" % sess.owner,
                                           'owner': sess.owner})
 
+                # clean player info
+                sess.clean_player_info(user_name)
+
                 if sess.in_game:  # check if in-game and only one player left (then game is finished)
                     if len(sess.players)-1 == 1:  # have not yet removed the player
                         print "Game over, only one player left in game."
@@ -293,16 +303,12 @@ def on_request_leave_session(ch, method, props, body):
                                          {'msg': 'You won! (other players left)'})
                         publish_to_topic(ch, '%s.%s.info' % (SERVER_NAME, session_name),
                                          {'msg': "%s won the game" % players[0],
-                                          'gameover': players[0]})  # msg to session
-                        # TODO should forward back to lobby
-                        # only active players left into lobby, other players are kicked
-                        if user_name in sess.players_active:
-                            sess.players_active.remove(user_name)
+                                          'gameover': players[0],
+                                         'active': False})  # msg to session, back to lobby
 
                         sess.reset_session()
                     else:  # otherwise send other players map where is no ships
                         map_empty = sess.get_map_pieces(user_name)
-                        sess.clean_player_info(user_name)  # clean player info
                         print "%s ships removed, sending data to client." % user_name
                         publish_to_topic(ch, '%s.%s.info' % (SERVER_NAME, session_name),
                                          {'msg': "%s ships removed" % user_name, 'empty_map': map_empty})
@@ -310,10 +316,8 @@ def on_request_leave_session(ch, method, props, body):
                     if len(players)-1 == 0:  # no players left in session - delete session
                         msg = "Game session %s is empty, session deleted" % session_name
                         print(msg)
-                        sess.players = []
                         del SESSIONS[session_name]  # only dict key deleted
-                    else:  # otherwise clean user info, and send message about leaving lobby
-                        sess.clean_player_info(user_name)
+                    else:  # send message about leaving lobby
                         publish_to_topic(ch, '%s.%s.info' % (SERVER_NAME, session_name),
                                          {'msg': "%s left from session" % user_name, 'left': user_name})
                     # refresh sessions list
@@ -473,7 +477,7 @@ def on_request_start_game(ch, method, props, body):
 
                 # start timing out player turns if haven't got response from them in 10 seconds
                 thread_timer = CheckTurnTime(SERVER_NAME, ch, sess)
-                # thread_timer.start()  # TODO test this
+                # thread_timer.start()  # TODO test timer thread
                 TIMER_THREADS[session_name] = thread_timer
 
                 print("User \"%s\" started game successfully from session %s." % (user_name, session_name))
@@ -510,6 +514,9 @@ def on_request_shoot(ch, method, props, body):
 
     msg = ""
 
+    # Lock thread for assigning next player. Timer is reset by shooting.
+    TIMER_LOCK.acquire()
+
     try:
         user_name = data['user']
         session_name = data['sname']
@@ -523,7 +530,7 @@ def on_request_shoot(ch, method, props, body):
 
             if sess.next_shot_by == user_name:
 
-                TIMER_THREADS[session_name].turn_start_time = time()  # restart timer # TODO lock thread?
+                TIMER_THREADS[session_name].turn_start_time = time()  # restart timer
 
                 res = sess.check_shot(coords)  # 0-miss, 1-hit, 2-sunk (refactor to enum)
 
@@ -554,21 +561,25 @@ def on_request_shoot(ch, method, props, body):
                     if player_lost is not None:
                         publish_to_topic(ch, '%s.%s.info' % (SERVER_NAME, session_name),
                                          {'msg': "%s lost game" % player_lost, 'gameover': player_lost})
+                        publish_to_topic(ch, '%s.%s.%s' % (SERVER_NAME, session_name, player_lost),  # spectator info
+                                         {'msg': 'You lost! Spectator mode.', 'spec_field': sess.battlefield})
+
                         if len(sess.players_alive) == 1:  # if only one player alive
                             print("Game over")
                             publish_to_topic(ch, '%s.%s.info' % (SERVER_NAME, session_name),
-                                             {'msg': "%s won the game" % user_name, 'gameover': user_name})
+                                             {'msg': "%s won the game" % user_name, 'gameover': user_name,
+                                              'active': False})  # Back to lobby
                             # Reset session info
                             sess.reset_session()
 
-                if sess.in_game:  # in case game over, then not in_game anymore (because created new session)
+                if sess.in_game:  # if still in game, select next player
 
                     next_player = sess.get_next_player()
 
                     publish_to_topic(ch, '%s.%s.info' % (SERVER_NAME, session_name),
                                      {'msg': "%s's turn." % next_player, 'next': next_player, 'coords': coords})
             else:
-                # not players turn to shoot
+                # it not given players turn to shoot
                 err = "It is not your turn to shoot"
                 print(err + " " + user_name)
 
@@ -582,11 +593,10 @@ def on_request_shoot(ch, method, props, body):
     except KeyError as e:
         print("KeyError: %s" % str(e))
         err = str(e)
+    finally:
+        TIMER_LOCK.release()
 
     publish(ch, method, props, {'err': err, 'msg': msg})
-
-    # TODO on_request_spectator - returns spectator info or returns all info on gameover?
-    # TODO So player could see all the map
 
 
 class CheckTurnTime(Thread):
@@ -613,17 +623,18 @@ class CheckTurnTime(Thread):
 
     def run(self):
         while self._is_running:
+            TIMER_LOCK.acquire()  # lock while assigning next player
             if self.sess.in_game:
                 if time() - self.turn_start_time >= self.turn_time:
                     print("Player didn't send response in time (10 seconds)")
                     next_player = self.sess.get_next_player()
                     publish_to_topic(self.channel, '%s.%s.info' % (SERVER_NAME, self.sess.session_name),
-                                     {'msg': "%s's turn." % next_player, 'next': next_player})  # not 'coords' sent
+                                     {'msg': "%s's turn." % next_player, 'next': next_player})  # 'coords' not sent
                     self.turn_start_time = time()
-                    sleep(1)  # no need to check very often
             else:
                 self._is_running = False
                 # remove also from dictionary
                 # remove dict key here, otherwise should check when game ended
                 del TIMER_THREADS[self.sess.session_name]
-
+            TIMER_LOCK.release()
+            sleep(1)  # no need to check very often
