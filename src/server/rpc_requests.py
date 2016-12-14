@@ -83,7 +83,7 @@ def on_request_connect(ch, method, props, body):
             err = "Username \"info\" already taken."  # sending this as error to arise minimum number of questions
             print("Player tried to take info as username - not allowed")
         elif user_name == "":
-            err = "User cannot have empty name"
+            err = "Please insert name."
             print(err)
         elif user_name not in connected_users:
             connected_users.append(user_name)
@@ -470,7 +470,7 @@ def on_request_start_game(ch, method, props, body):
             if user_name != sess.owner:
                 err = "User is not session owner"
                 print(err)
-            elif sess.check_ready(user_name) and len(sess.players) > 1:  # check whether players ready and more than 1
+            elif sess.check_ready(user_name):  #TODO and len(sess.players) > 1:  # check whether players ready and more than 1
                 # START GAME
                 sess.start_game()
                 # send info about sessions to sessions lobby and game session lobby
@@ -484,7 +484,7 @@ def on_request_start_game(ch, method, props, body):
                 # thread_timer.start()  # TODO test timer thread
                 TIMER_THREADS[session_name] = thread_timer
 
-                print("User \"%s\" started game successfully from session %s." % (user_name, session_name))
+                print("User \"%s\" started game successfully on session %s." % (user_name, session_name))
             else:
                 if len(sess.players) > 1:
                     err = "All players are not ready!"
@@ -557,7 +557,7 @@ def on_request_shoot(ch, method, props, body):
                     ship_coords = sess.get_ship_coordinates(coords)
 
                     publish_to_topic(ch, '%s.%s.info' % (SERVER_NAME, session_name),
-                                     {'msg': "%s sunk a ship" % user_name, 'coords': ship_coords})
+                                     {'msg': "%s sunk a ship" % user_name, 'ship_coords': ship_coords})
 
                     # check whether any player lost a game and if only one player left
                     player_lost = sess.check_end_game()
@@ -599,7 +599,7 @@ def on_request_shoot(ch, method, props, body):
     finally:
         TIMER_LOCK.release()
 
-    publish(ch, method, props, {'err': err, 'msg': msg})
+    publish(ch, method, props, {'err': err, 'msg': msg, 'res': res})
 
 
 class CheckTurnTime(Thread):

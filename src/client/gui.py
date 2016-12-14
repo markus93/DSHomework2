@@ -264,7 +264,7 @@ class RootWindow(Tkinter.Tk, object):
         else:
             return True
 
-    def begin(self, players_list, next_player, my_ships):
+    def begin(self, players_list, next_player, my_ships, map_pieces):
         """
         Begin the actual game.
 
@@ -273,18 +273,39 @@ class RootWindow(Tkinter.Tk, object):
             next_player (str): Player who will start the game
             my_ships (list[tuple]): List of my ships coordinates
         """
-
         self.game_frame.pack()
         self.game_setup_frame.pack_forget()
-
         self.game_listener.exit()
+
         self.game_listener = GameListener('{0}.{1}.info'.format(self.rpc.server_name, self.game_name),
                                           self.connection_args, self.game_frame.update_game_info)
+
         self.player_listener = PlayerListener('{0}.{1}.{2}'.format(
                 self.rpc.server_name, self.game_name, self.player_name),
                 self.connection_args, self.game_frame.update_player_info)
 
-        self.game_frame.start_game(players_list, next_player, my_ships)
+        self.game_frame.start_game(players_list, next_player, my_ships, map_pieces)
+
+    def shoot(self, x, y):
+        """
+        Take a shot
+
+        Args:
+            x (int): x-coordinate
+            y (int): y-coordinate
+
+        Returns:
+            bool: True if operation was a success, False on error
+        """
+
+        response = self.rpc.shoot(user=self.player_name, sname=self.game_name, coords = [x,y])
+
+        if response['err']:
+            tkMessageBox.showerror('Error', response['err'])
+            return False
+        else:
+            print response
+            return True
 
 
 class ServerSelectionFrame(Tkinter.Frame, object):
@@ -530,7 +551,8 @@ class GameSetupFrame(BaseGameFrame):
 
         super(GameSetupFrame, self).init_field()
 
-        self.next_ships = [4, 3, 3, 2, 2, 2, 1, 1, 1, 1]
+        #self.next_ships = [4, 3, 3, 2, 2, 2, 1, 1, 1, 1]
+        self.next_ships = [1, 1]  # TODO I modified that for easier testing
         self.reset_field_button.grid(row=0, column=SQUARES_IN_A_ROW * (SQUARE_SIDE_LENGTH + SQUARE_BUFFER_SIZE))
 
     def clear_field(self):
@@ -650,7 +672,8 @@ class GameSetupFrame(BaseGameFrame):
 
         if kwargs.get('active', False):
             # Start playing the actual game.
-            self.parent.begin(players_list=self.players_list, next_player=kwargs['next'], my_ships=self.ship_coords)
+            self.parent.begin(players_list=self.players_list, next_player=kwargs['next'], my_ships=self.ship_coords,
+                              map_pieces=self.map_pieces)
             return
 
         # Edit the actual listbox
@@ -678,8 +701,26 @@ class GameFrame(BaseGameFrame):
 
         # Define and position the widgets
 
-    def start_game(self, players_list, next_player, my_ships):
+        # self.game_field = [[]]
+
+    def start_game(self, players_list, next_player, my_ships, map_pieces):
+        self.ship_coords = my_ships
+        self.game_size = len(players_list)
+        self.map_pieces = map_pieces
+        self.init_field(in_game=True)
+        # Init field with my ships, shoot_button inactive if next_player != player. Add players to list?
         pass
+
+    def on_click(self, x, y):
+        """
+        Click event handler for field squares.
+
+        Args:
+            x (int): x-coordinate
+            y (int): y-coordinate
+        """
+
+        self.parent.shoot(x, y)  # TODO tested rpc shoot
 
     def update_game_info(self, **kwargs):
         print(kwargs)
