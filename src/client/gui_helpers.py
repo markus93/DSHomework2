@@ -63,6 +63,14 @@ class BaseGameFrame(Tkinter.Frame, object):
         self.ship_coords = []
         self.map_pieces = []
         self.game_size = None
+        self.players_list = []
+
+        # Define and position widgets
+        self.leave_game_button = Tkinter.Button(self, text="<< Leave game", command=self.leave_game)
+        self.leave_game_button.grid(row=0, column=0, columnspan=10)
+
+        self.players_listbox = Tkinter.Listbox(self, selectmode=Tkinter.SINGLE)
+        self.players_listbox.grid(row=1, column=SQUARES_IN_A_ROW * (SQUARE_SIDE_LENGTH + SQUARE_BUFFER_SIZE), rowspan=10)
 
     def leave_game(self):
         """
@@ -188,3 +196,9 @@ class GameSquare(Tkinter.Button, object):
     def change_state(self, active=True):
         self.configure(state=Tkinter.NORMAL if active else Tkinter.DISABLED)
         self.config(highlightbackground='alice blue' if active else 'blue')
+
+    def hit(self):
+        self.configure(text=u'\u2022')
+
+    def sunk(self):
+        self.configure(text=u'\u2573')

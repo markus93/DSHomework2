@@ -16,7 +16,7 @@ class RootWindow(Tkinter.Tk, object):
 
         self.connection_args = args
 
-        self.nickname = None
+        self.player_name = None
         self.game_name = None
         self.protocol("WM_DELETE_WINDOW", self.on_exit)
 
@@ -24,10 +24,11 @@ class RootWindow(Tkinter.Tk, object):
         self.server_selection_frame = ServerSelectionFrame(self)
         self.lobby_frame = LobbyFrame(self)
         self.game_setup_frame = GameSetupFrame(self)
+        self.game_frame = GameFrame(self)
 
         # Setup connections
         self.rpc = RPCClient(args)
-        self.global_listener = GlobalListener(args, self.update_servers_list)
+        self.global_listener = GlobalListener(args, self.server_selection_frame.update_servers_list)
         self.server_listener = None
         self.game_listener = None
         self.player_listener = None
@@ -40,7 +41,7 @@ class RootWindow(Tkinter.Tk, object):
         Close all open connections on closing the window.
         """
 
-        if self.nickname is not None:
+        if self.player_name is not None:
             # We are connected to a server
             if self.game_name is not None:
                 # We are in game
@@ -59,27 +60,6 @@ class RootWindow(Tkinter.Tk, object):
             self.player_listener.exit()
 
         self.destroy()
-
-    def update_servers_list(self, servers):
-        """
-        Update the servers list in server_selection_frame
-
-        Args:
-            servers (list[str]): List of server names
-        """
-        self.server_selection_frame.update_servers_list(servers)
-
-    def update_games_list(self, game):
-        """
-        Update the lobby about changes to the games.
-
-        Args:
-            game (dict): information about the game that changed
-
-        Returns:
-
-        """
-        self.lobby_frame.update_games_list([game])
 
     def join_server(self, server_name, nickname):
         """
@@ -102,13 +82,13 @@ class RootWindow(Tkinter.Tk, object):
             tkMessageBox.showerror('Error', response['err'])
             return False
         else:
-            self.nickname = nickname
+            self.player_name = nickname
             self.server_selection_frame.pack_forget()
             self.lobby_frame.pack(fill=Tkinter.BOTH)
 
             self.lobby_frame.update_games_list(response['sessions'])
             self.server_listener = ServerListener('{0}.sessions.info'.format(self.rpc.server_name),
-                                                  self.connection_args, self.update_games_list)
+                                                  self.connection_args, self.lobby_frame.update_games_list)
 
             return True
 
@@ -119,13 +99,13 @@ class RootWindow(Tkinter.Tk, object):
         Returns:
             bool: True if operation was a success
         """
-        response = self.rpc.disconnect(user=self.nickname)
+        response = self.rpc.disconnect(user=self.player_name)
 
         if response['err']:
             tkMessageBox.showerror('Error', response['err'])
             return False
         else:
-            self.nickname = None
+            self.player_name = None
             self.rpc.server_name = None
 
             self.lobby_frame.pack_forget()
@@ -148,7 +128,7 @@ class RootWindow(Tkinter.Tk, object):
             bool: True if operation was a success, False on error
         """
 
-        response = self.rpc.create_session(user=self.nickname, sname=game_name, player_count=game_size)
+        response = self.rpc.create_session(user=self.player_name, sname=game_name, player_count=game_size)
 
         if response['err']:
             tkMessageBox.showerror('Error', response['err'])
@@ -160,7 +140,10 @@ class RootWindow(Tkinter.Tk, object):
             self.game_name = game_name
             self.game_setup_frame.join_game(game_size, response['map'], owner=True)
             self.game_listener = GameListener('{0}.{1}.info'.format(self.rpc.server_name, self.game_name),
-                                              self.connection_args, None)
+                                              self.connection_args, self.game_setup_frame.update_players_list)
+
+            self.game_setup_frame.update_players_list(joined=self.player_name)
+            self.game_setup_frame.update_players_list(owner=self.player_name)
 
             return True
 
@@ -176,7 +159,8 @@ class RootWindow(Tkinter.Tk, object):
             bool: True if operation was a success, False on error
         """
 
-        response = self.rpc.join_session(user=self.nickname, sname=game_name)
+        response = self.rpc.join_session(user=self.player_name, sname=game_name)
+        print(response)
 
         if response['err']:
             tkMessageBox.showerror('Error', response['err'])
@@ -188,7 +172,16 @@ class RootWindow(Tkinter.Tk, object):
             self.game_name = game_name
             self.game_setup_frame.join_game(game_size, response['map'])
             self.game_listener = GameListener('{0}.{1}.info'.format(self.rpc.server_name, self.game_name),
-                                              self.connection_args, None)
+                                              self.connection_args, self.game_setup_frame.update_players_list)
+
+            # Update the players list with excisting players
+            self.game_setup_frame.update_players_list(joined=self.player_name)
+            self.game_setup_frame.update_players_list(joined=response['owner'])
+            self.game_setup_frame.update_players_list(owner=response['owner'])
+            for player_name in response['players']:
+                self.game_setup_frame.update_players_list(joined=player_name)
+            for player_name in response['ready']:
+                self.game_setup_frame.update_players_list(ready=player_name)
 
             return True
 
@@ -200,7 +193,7 @@ class RootWindow(Tkinter.Tk, object):
             bool: True if operation was a success, False on error
         """
 
-        response = self.rpc.leave_session(user=self.nickname, sname=self.game_name)
+        response = self.rpc.leave_session(user=self.player_name, sname=self.game_name)
 
         if response['err']:
             tkMessageBox.showerror('Error', response['err'])
@@ -211,6 +204,10 @@ class RootWindow(Tkinter.Tk, object):
 
             self.game_listener.exit()
             self.game_listener = None
+
+            if self.player_listener is not None:
+                self.player_listener.exit()
+                self.player_listener = None
 
             self.game_name = None
 
@@ -227,7 +224,7 @@ class RootWindow(Tkinter.Tk, object):
             bool: True if operation was a success, False on error
         """
 
-        response = self.rpc.send_ship_placement(user=self.nickname, sname=self.game_name, coords=coords)
+        response = self.rpc.send_ship_placement(user=self.player_name, sname=self.game_name, coords=coords)
 
         if response['err']:
             tkMessageBox.showerror('Error', response['err'])
@@ -243,7 +240,7 @@ class RootWindow(Tkinter.Tk, object):
             bool: True if operation was a success, False on error
         """
 
-        response = self.rpc.ready(user=self.nickname, sname=self.game_name)
+        response = self.rpc.ready(user=self.player_name, sname=self.game_name)
 
         if response['err']:
             tkMessageBox.showerror('Error', response['err'])
@@ -259,13 +256,35 @@ class RootWindow(Tkinter.Tk, object):
             bool: True if operation was a success, False on error
         """
 
-        response = self.rpc.start_game(user=self.nickname, sname=self.game_name)
+        response = self.rpc.start_game(user=self.player_name, sname=self.game_name)
 
         if response['err']:
             tkMessageBox.showerror('Error', response['err'])
             return False
         else:
             return True
+
+    def begin(self, players_list, next_player, my_ships):
+        """
+        Begin the actual game.
+
+        Args:
+            players_list (list[dict]): List of players
+            next_player (str): Player who will start the game
+            my_ships (list[tuple]): List of my ships coordinates
+        """
+
+        self.game_frame.pack()
+        self.game_setup_frame.pack_forget()
+
+        self.game_listener.exit()
+        self.game_listener = GameListener('{0}.{1}.info'.format(self.rpc.server_name, self.game_name),
+                                          self.connection_args, self.game_frame.update_game_info)
+        self.player_listener = PlayerListener('{0}.{1}.{2}'.format(
+                self.rpc.server_name, self.game_name, self.player_name),
+                self.connection_args, self.game_frame.update_player_info)
+
+        self.game_frame.start_game(players_list, next_player, my_ships)
 
 
 class ServerSelectionFrame(Tkinter.Frame, object):
@@ -459,18 +478,12 @@ class GameSetupFrame(BaseGameFrame):
 
     def __init__(self, parent):
         """
-        Displays a list of available games in server.
-        Allows to grate a new game and join existing ones.
-
-        Args:
-            parent (RootWindow):
+        Choose the positions for your ships.
         """
         super(GameSetupFrame, self).__init__(parent)
 
         # Define and position the widgets
 
-        self.leave_game_button = Tkinter.Button(self, text="<< Leave game", command=self.leave_game)
-        self.leave_game_button.grid(row=0, column=0, columnspan=10)
         self.start_game_button = Tkinter.Button(self, text="Start game", command=self.start_game)
         self.reset_field_button = Tkinter.Button(self, text="Reset field", command=self.reset_field)
 
@@ -603,3 +616,73 @@ class GameSetupFrame(BaseGameFrame):
             self.ready()
 
         self.reset_field_button.grid_remove()
+
+    def update_players_list(self, joined=None, owner=None, ready=None, left=None, **kwargs):
+        """
+        Update the list of players in game
+
+        Args:
+            joined (str): players name
+            owner (str): players name
+            ready (str): players name
+            left (str): players name
+            **kwargs:
+        """
+
+        if joined is not None:
+            self.players_list.append({'name': joined, 'ready': False, 'owner': False})
+
+        if owner is not None:
+            for player in self.players_list:
+                if player['name'] == owner:
+                    player['owner'] = True
+                else:
+                    player['owner'] = False
+
+        if ready is not None:
+            for player in self.players_list:
+                if player['name'] == ready:
+                    player['ready'] = True
+                    break
+
+        if left is not None:
+            self.players_list = [player for player in self.players_list if player['name'] != left]
+
+        if kwargs.get('active', False):
+            # Start playing the actual game.
+            self.parent.begin(players_list=self.players_list, next_player=kwargs['next'], my_ships=self.ship_coords)
+            return
+
+        # Edit the actual listbox
+
+        self.players_listbox.delete(0, Tkinter.END)
+        for player in self.players_list:
+            player_name = player['name']
+
+            if player['owner']:
+                player_name += ' (owner)'
+
+            if player['ready']:
+                player_name += ' (ready)'
+
+            self.players_listbox.insert(Tkinter.END, player_name)
+
+
+class GameFrame(BaseGameFrame):
+
+    def __init__(self, parent):
+        """
+        Play the game.
+        """
+        super(GameFrame, self).__init__(parent)
+
+        # Define and position the widgets
+
+    def start_game(self, players_list, next_player, my_ships):
+        pass
+
+    def update_game_info(self, **kwargs):
+        print(kwargs)
+
+    def update_player_info(self, **kwargs):
+        print(kwargs)

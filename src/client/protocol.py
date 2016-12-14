@@ -4,7 +4,7 @@ import uuid
 import time
 from threading import Thread, Timer
 
-CONNECTION_TIMEOUT = 5
+CONNECTION_TIMEOUT = 3
 
 
 class RPCClient(object):
@@ -90,7 +90,7 @@ class RPCClient(object):
 
 class BaseListener(Thread):
 
-    def __init__(self, key, args, callback):
+    def __init__(self, key, args, callback, **kwargs):
         """
         Baseclass for listeners.
 
@@ -99,7 +99,7 @@ class BaseListener(Thread):
             args:
             callback: External callback function to call after reciveing from server(s).
         """
-        super(BaseListener, self).__init__()
+        super(BaseListener, self).__init__(**kwargs)
 
         # Set up the RabbitMQ stuff
         self.connection = pika.BlockingConnection(pika.ConnectionParameters(host=args.host, port=args.port))
@@ -147,7 +147,7 @@ class GlobalListener(BaseListener):
         Listen for servers announcing themselves.
         Calls callback with list of available server names.
         """
-        super(GlobalListener, self).__init__('*.info', args, callback)
+        super(GlobalListener, self).__init__('*.info', args, callback, name='GlobalListener')
 
         # And now the thread logic
         self.servers = {}
@@ -171,10 +171,10 @@ class ServerListener(BaseListener):
         """
         Listen for anouncments about the server.
         """
-        super(ServerListener, self).__init__(key, args, callback)
+        super(ServerListener, self).__init__(key, args, callback, name='ServerListener')
 
     def callback(self, ch, method, props, body):
-        self.external_callback(json.loads(body))
+        self.external_callback([json.loads(body)])
 
 
 class GameListener(BaseListener):
@@ -183,10 +183,10 @@ class GameListener(BaseListener):
         """
         Listen for anouncments about the game.
         """
-        super(GameListener, self).__init__(key, args, callback)
+        super(GameListener, self).__init__(key, args, callback, name='GameListener')
 
     def callback(self, ch, method, props, body):
-        print('game', body)
+        self.external_callback(**json.loads(body))
 
 
 class PlayerListener(BaseListener):
@@ -195,7 +195,7 @@ class PlayerListener(BaseListener):
         """
         Listen for personal anouncments about the player.
         """
-        super(PlayerListener, self).__init__(key, args, callback)
+        super(PlayerListener, self).__init__(key, args, callback, name='PlayerListener')
 
     def callback(self, ch, method, props, body):
-        print('player', body)
+        self.external_callback(**json.loads(body))
