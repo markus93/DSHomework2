@@ -180,6 +180,26 @@ class RootWindow(Tkinter.Tk, object):
         if response['err']:
             tkMessageBox.showerror('Error', response['err'])
             return False
+
+        elif 'battlefield' in response:
+
+            # Lets reconnect to the game
+
+            self.show_frame(self.game_frame)
+            self.game_name = game_name
+            self.game_size = game_size
+
+            self.game_listener = GameListener('{0}.{1}.info'.format(self.rpc.server_name, self.game_name),
+                                              self.connection_args, self.game_frame.update_game_info)
+
+            self.player_listener = PlayerListener('{0}.{1}.{2}'.format(
+                    self.rpc.server_name, self.game_name, self.player_name),
+                    self.connection_args, self.game_frame.update_player_info)
+
+            players_list = [{'name': player_name} for player_name in response['players_list']]
+
+            self.game_frame.reconnect_game(response['players_list'], response['next'], response['battlefield'], response['map'], self.game_size)
+
         else:  # TODO add here reconnect option - keys: map (map_pieces), battlefield, next
             self.show_frame(self.game_setup_frame)
 
@@ -211,7 +231,7 @@ class RootWindow(Tkinter.Tk, object):
             bool: True if operation was a success, False on error
         """
 
-        connected = connected or not self.game_frame.game_over
+        connected = connected and not self.game_frame.game_over
 
         if connected:
             response = self.rpc.leave_session(user=self.player_name, sname=self.game_name)
@@ -763,6 +783,24 @@ class GameFrame(BaseGameFrame):
             self.start_turn()
 
         self.update_players_list()
+
+    def reconnect_game(self, player_list, next_player, battlefield, map_pieces, game_size):
+        """
+        Reconnect after becoming inactive.
+        """
+
+        players_list = [{'name': player_name} for player_name in player_list]
+
+        self.game_size = game_size
+        self.map_pieces = map_pieces
+
+        my_ships = []
+        for x in self.xs:
+            for y in self.ys:
+                if battlefield[y][x] in (1, 2) and self.can_have_my_ship(x, y):
+                    my_ships.append((y, x))
+
+        self.reconnect_game(players_list, next_player, my_ships, map_pieces, game_size)
 
     def start_turn(self):
         """
