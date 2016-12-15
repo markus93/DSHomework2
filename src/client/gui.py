@@ -200,7 +200,7 @@ class RootWindow(Tkinter.Tk, object):
 
             self.game_frame.reconnect_game(response['players_list'], response['next'], response['battlefield'], response['map'], self.game_size)
 
-        else:  # TODO add here reconnect option - keys: map (map_pieces), battlefield, next
+        else:
             self.show_frame(self.game_setup_frame)
 
             self.game_name = game_name
@@ -813,7 +813,7 @@ class GameFrame(BaseGameFrame):
                 if battlefield[y][x] in (1, 2):
                     self.game_field[y][x].make_ship()
 
-                if battlefield[y][x] == 1:
+                if abs(battlefield[y][x]) == 1:
                     self.game_field[y][x].hit()
 
     def start_turn(self):
