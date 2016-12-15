@@ -134,7 +134,6 @@ class GameSession:
                 self.next_shot_by = next_p
                 return next_p
 
-        print("ERR: No players alive or active, shouldn't happen")
         return current
 
     def get_ship_coordinates(self, coords):
@@ -364,8 +363,8 @@ class GameSession:
 
     def start_game(self):
         self.in_game = True
-        self.players_alive = self.players
-        self.players_active = self.players
+        self.players_alive = self.players[:]
+        self.players_active = self.players[:]
 
     def reset_session(self):
         """
@@ -376,7 +375,7 @@ class GameSession:
         self.battlefield = [x[:] for x in [[0] * (20 + 3)] * (self.max_players * 6 - 1)]
         self.ships_placed = []
         self.next_shot_by = self.owner
-        self.players = self.players_active
+        self.players = self.players_active[:]
         self.players_active = []
         self.players_alive = []
 
