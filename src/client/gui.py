@@ -32,6 +32,8 @@ class RootWindow(Tkinter.Tk, object):
         self.server_listener = None
         self.game_listener = None
         self.player_listener = None
+        self.player_announcements = None
+
 
         # Show the first frame
         self.show_frame(self.server_selection_frame)
@@ -58,6 +60,8 @@ class RootWindow(Tkinter.Tk, object):
             self.game_listener.exit()
         if self.player_listener is not None:
             self.player_listener.exit()
+        if self.player_announcements is not None:
+            self.player_announcements.exit()
 
         self.destroy()
 
@@ -98,7 +102,9 @@ class RootWindow(Tkinter.Tk, object):
             self.lobby_frame.update_games_list(response['sessions'])
             self.server_listener = ServerListener('{0}.sessions.info'.format(self.rpc.server_name),
                                                   self.connection_args, self.lobby_frame.update_games_list)
-
+            # Also start announcing player activity to server
+            self.player_announcements = PlayerAnnouncements(self.player_name, self.connection_args)
+            self.player_announcements.start()
             return True
 
     def leave_server(self):
@@ -121,6 +127,8 @@ class RootWindow(Tkinter.Tk, object):
 
             self.server_listener.exit()
             self.server_listener = None
+            self.player_announcements.exit()
+            self.player_announcements = None
 
             return True
 
@@ -172,7 +180,7 @@ class RootWindow(Tkinter.Tk, object):
         if response['err']:
             tkMessageBox.showerror('Error', response['err'])
             return False
-        else:
+        else:  # TODO add here reconnect option - keys: map (map_pieces), battlefield, next
             self.show_frame(self.game_setup_frame)
 
             self.game_name = game_name

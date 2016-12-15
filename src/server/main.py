@@ -26,7 +26,7 @@ def server_main(args):
     Call this method to set up and start server
     """
 
-    global_listener = None
+    player_listener = None
     server_announcements_thread = None
     connection = None
 
@@ -38,7 +38,7 @@ def server_main(args):
         server_announcements_thread = ServerAnnouncements(args.name, channel)
         server_announcements_thread.start()
 
-        #global_listener = GlobalListener(args, rpc_requests.check_player_activity)
+        player_listener = PlayerListener(args, channel, rpc_requests.check_player_activity)
 
         print "Server %s is up and running" % args.name
 
@@ -50,8 +50,8 @@ def server_main(args):
     finally:
         if server_announcements_thread is not None:
             server_announcements_thread.exit()
-        if global_listener is not None:
-            global_listener.exit()
+        if player_listener is not None:
+            player_listener.exit()
         if connection is not None:
             connection.close()
 
@@ -126,17 +126,18 @@ class ServerAnnouncements(Thread):
         self._is_running = False
 
 
-class GlobalListener(BaseListener):
+class PlayerListener(BaseListener):
 
-    def __init__(self, args, callback):
+    def __init__(self, args, channel, callback):
         """
         Listen for players announcing themselves.
         Calls callback with list of active player names.
         """
-        super(GlobalListener, self).__init__('players.info', args, callback, name='GlobalListener')
+        super(PlayerListener, self).__init__('players.activity', args, callback, name='PlayerListener')
 
         # And now the thread logic
         self.players = {}
+        self.channel = channel
         self.update_players_activity()
 
     def callback(self, ch, method, props, body):
@@ -144,8 +145,12 @@ class GlobalListener(BaseListener):
 
     def update_players_activity(self):
         current_time = time.time()
-        self.external_callback(player_name for player_name, last_seen in self.players.items()
-                               if last_seen > current_time - 5)
+        active_players = []
+        for player_name, last_seen in self.players.items():
+            if last_seen > (current_time - 5):
+                active_players.append(player_name)
+
+        self.external_callback(active_players, self.channel)
 
         if self._is_running:
             Timer(1, self.update_players_activity).start()

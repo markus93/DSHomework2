@@ -174,9 +174,8 @@ class PlayerAnnouncements(Thread):
 
     def run(self):
         while self._is_running:
-            print "Publish activity"
-            self.channel.basic_publish(exchange='topic_server', routing_key='players.info',
-                                       body=self.server_name)
+            self.channel.basic_publish(exchange='topic_server', routing_key='players.activity',
+                                       body=self.player_name)
             time.sleep(1)
 
     def exit(self):

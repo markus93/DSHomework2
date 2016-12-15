@@ -12,7 +12,6 @@ from time import time, sleep
 # Variables
 
 connected_users = []
-active_users = []
 SESSIONS = {}
 """@type: dict[str, GameSession]"""
 SERVER_NAME = "unnamed"
@@ -21,65 +20,7 @@ TIMER_THREADS = {}
 TIMER_LOCK = Lock()
 
 
-def publish(ch, method, props, rsp):
-    """
-    Publish response to client RPC call
-
-    Args:
-        ch (channel): channel used to publish messages to RabbitMQ
-        method (method_frame): used to get delivery tag for acknowledging
-        props (header_frame): used to get reply_to routing key and correlation id
-        rsp (dict): dictionary containing response to client
-    """
-
-    response = json.dumps(rsp)
-
-    ch.basic_publish(exchange='',
-                     routing_key=props.reply_to,
-                     properties=pika.BasicProperties(correlation_id=props.correlation_id),
-                     body=response)
-    ch.basic_ack(delivery_tag=method.delivery_tag)
-
-
-def publish_to_topic(ch, key, rsp):
-    """
-    Publish message to topic_server topic exchange MQ
-    Messages about in-game, game session lobby activities
-
-    Args:
-        ch (channel): channel used to publish messages to RabbitMQ
-        key (str): routing key of published message
-        rsp (dict): dictionary containing response to client
-    """
-
-    response = json.dumps(rsp)
-
-    ch.basic_publish(exchange='topic_server', routing_key=key,
-                     body=response)
-
-
-def check_player_activity(players):
-    # TODO remove user from connected users list, from lobby (in_game=false) or make inactive
-    #print "Check player activity"
-    for user in connected_users:
-        if user not in players:  # meaning player inactive
-            print "User %s is inactive" % user
-            print "Removed user %s from server" % user
-            connected_users.remove(user)
-            # check if user in game session
-            for key in SESSIONS:
-                sess = SESSIONS[key]
-                if user in sess.players:
-                    if sess.in_game:
-                        print("User in game")
-                        if user in sess.player_acitve:
-                            sess.players_active.remove(user)
-                            # TODO send msg about user inactivity
-                    else:
-                        # TODO msg about it
-                        sess.players.remove(user)
-                        print("User kicked from lobby")
-
+# RPC REQUEST HANDLERS
 
 def on_request_connect(ch, method, props, body):
     """
@@ -111,10 +52,6 @@ def on_request_connect(ch, method, props, body):
             print(err)
         elif user_name not in connected_users:
             connected_users.append(user_name)
-
-            # TODO start listening for user activity, if user not active and in game then send info to session.
-            # TODO kick player from server if inactive (but should be left in game, in order to reconnect to game)
-            # TODO inactive users should be kicked out of lobby if not in game else changed to inactive
 
             # Get sessions info
             for key in SESSIONS.keys():
@@ -148,12 +85,9 @@ def on_request_disconnect(ch, method, props, body):
         if user_name in connected_users:
             connected_users.remove(user_name)
 
-            # TODO stop listening for user activity
-
             print("User \"%s\" disconnected successfully." % user_name)
         else:
-            err = "Username \"%s\" is not in connected users list" % user_name
-            print(err)
+            print("Username \"%s\" is not in connected users list" % user_name)
 
     except KeyError as e:
         print("KeyError: %s" % str(e))
@@ -179,7 +113,7 @@ def on_request_create_session(ch, method, props, body):
         if session_name == "sessions":
             err = "Session name \"sessions\" is not allowed"
             print(err)
-        elif user_name in connected_users and session_name not in SESSIONS:
+        elif session_name not in SESSIONS:
             err = ""
             sess = GameSession(session_name, player_count, user_name)
             SESSIONS[session_name] = sess
@@ -189,12 +123,12 @@ def on_request_create_session(ch, method, props, body):
                              body=json.dumps(sess.info()))
 
             print("Session \"%s\" created successfully." % session_name)
-        elif user_name not in connected_users:
-            err = "User \"%s\" is not connected to the server" % user_name
-            print(err)
         else:
             err = "Session name \"%s\" is already taken" % session_name
             print(err)
+        if user_name not in connected_users:
+            connected_users.append(user_name)
+            print "Put user %s back to users players list" % user_name
 
     except KeyError as e:
         print("KeyError: %s" % str(e))
@@ -219,7 +153,7 @@ def on_request_join_session(ch, method, props, body):
 
         print("%s joining to session %s" % (user_name, session_name))
 
-        if user_name in connected_users and session_name in SESSIONS:
+        if session_name in SESSIONS:
             err = ""
 
             # check whether spot in game session is free
@@ -260,12 +194,13 @@ def on_request_join_session(ch, method, props, body):
                         err = "User with given name already in lobby"
                         print(err)
 
-        elif user_name not in connected_users:
-            err = "Username \"%s\" is not in connected users list" % user_name
-            print(err)
         else:
             err = "Session \"%s\" does not exist anymore" % session_name
             print(err)
+
+        if user_name not in connected_users:
+            connected_users.append(user_name)
+            print "Put user %s back to active users list" % user_name
 
     except KeyError as e:
         print("KeyError: %s" % str(e))
@@ -295,6 +230,7 @@ def on_request_leave_session(ch, method, props, body):
     """
 
     data = json.loads(body)
+    reconnected = False
 
     try:
         user_name = data['user']
@@ -312,17 +248,8 @@ def on_request_leave_session(ch, method, props, body):
 
                 # clean player info
                 sess.clean_player_info(user_name)
-
-                # check if player was owner of session
-                if sess.owner == user_name:
-                    # len(players) must be >= 1 otherwise no other players left
-                    if len(players) >= 1:
-                        for player in players:
-                            if player != sess.owner:
-                                sess.owner = player  # add new owner
-                        publish_to_topic(ch, '%s.%s.info' % (SERVER_NAME, session_name),
-                                         {'msg': "%s is new owner of game (last owner left)" % sess.owner,
-                                          'owner': sess.owner})
+                # check whether owner and if then publish message about it
+                check_owner(sess, user_name, ch)
 
                 if sess.in_game:  # check if in-game and only one player left (then game is finished)
                     if len(sess.players) == 1:
@@ -341,26 +268,17 @@ def on_request_leave_session(ch, method, props, body):
                         publish_to_topic(ch, '%s.%s.info' % (SERVER_NAME, session_name),
                                          {'msg': "%s ships removed" % user_name, 'empty_map': map_empty})
                 else:  # in lobby
-                    if len(players) == 0:  # no players left in session - delete session
-                        msg = "Game session %s is empty, session deleted" % session_name
-                        print(msg)
-                        del SESSIONS[session_name]  # only dict key deleted
-                    else:  # send message about leaving lobby
-                        publish_to_topic(ch, '%s.%s.info' % (SERVER_NAME, session_name),
-                                         {'msg': "%s left from session" % user_name, 'left': user_name})
-                    # refresh sessions list
-                    publish_to_topic(ch, '%s.sessions.info' % SERVER_NAME, sess.info())
-
-                    # delete empty session
-                    if len(sess.players) == 0:
-                        del sess
+                    leave_game_lobby(sess, user_name, ch)
+                    # leaves game lobby and destroys it if no players left, also send messages to players
 
                 print("User \"%s\" left successfully from session %s." % (user_name, session_name))
             else:
                 print("User was not in players list!")
         elif user_name not in connected_users:
             err = "Username \"%s\" is not in connected users list" % user_name
-            print(err)
+            connected_users.append(user_name)
+            reconnected = True
+            print "Put user %s back to players list" % user_name
         else:
             err = "Session \"%s\" does not exist anymore" % session_name
             print(err)
@@ -369,7 +287,7 @@ def on_request_leave_session(ch, method, props, body):
         print("KeyError: %s" % str(e))
         err = str(e)
 
-    publish(ch, method, props, {'err': err})
+    publish(ch, method, props, {'err': err, 'reconnect': reconnected})
 
 
 def on_request_send_ship_placement(ch, method, props, body):
@@ -378,6 +296,7 @@ def on_request_send_ship_placement(ch, method, props, body):
     """
     data = json.loads(body)
     err = ""
+    reconnected = False
 
     try:
         user_name = data['user']
@@ -409,7 +328,9 @@ def on_request_send_ship_placement(ch, method, props, body):
 
         elif user_name not in connected_users:
             err = "Username \"%s\" is not in connected users list" % user_name
-            print(err)
+            connected_users.append(user_name)
+            reconnected = True
+            print "Put user %s back to players list" % user_name
         else:
             err = "Session \"%s\" does not exist anymore" % session_name
             print(err)
@@ -418,7 +339,7 @@ def on_request_send_ship_placement(ch, method, props, body):
         print("KeyError: %s" % str(e))
         err = str(e)
 
-    publish(ch, method, props, {'err': err})
+    publish(ch, method, props, {'err': err, 'reconnect': reconnected})
 
 
 def on_request_ready(ch, method, props, body):
@@ -427,6 +348,7 @@ def on_request_ready(ch, method, props, body):
     """
 
     data = json.loads(body)
+    reconnected = False
 
     try:
         user_name = data['user']
@@ -460,7 +382,9 @@ def on_request_ready(ch, method, props, body):
             print("User \"%s\" set successfully ready state" % user_name)
         elif user_name not in connected_users:
             err = "Username \"%s\" is not in connected users list" % user_name
-            print(err)
+            connected_users.append(user_name)
+            reconnected = True
+            print "Put user %s back to players list" % user_name
         else:
             err = "Session \"%s\" does not exist anymore" % session_name
             print(err)
@@ -469,7 +393,7 @@ def on_request_ready(ch, method, props, body):
         print("KeyError: %s" % str(e))
         err = str(e)
 
-    publish(ch, method, props, {'err': err})
+    publish(ch, method, props, {'err': err, 'reconnect': reconnected})
 
 
 def on_request_start_game(ch, method, props, body):
@@ -479,6 +403,7 @@ def on_request_start_game(ch, method, props, body):
     """
 
     data = json.loads(body)
+    reconnected = False
 
     try:
         user_name = data['user']
@@ -494,7 +419,7 @@ def on_request_start_game(ch, method, props, body):
             if user_name != sess.owner:
                 err = "User is not session owner"
                 print(err)
-            elif sess.check_ready(user_name):  #TODO and len(sess.players) > 1:  # check whether players ready and more than 1
+            elif sess.check_ready(user_name) and len(sess.players) > 1:  # check whether players ready and more than 1
                 # START GAME
                 sess.start_game()
                 # send info about sessions to sessions lobby and game session lobby
@@ -505,7 +430,7 @@ def on_request_start_game(ch, method, props, body):
 
                 # start timing out player turns if haven't got response from them in 10 seconds
                 thread_timer = CheckTurnTime(SERVER_NAME, ch, sess)
-                thread_timer.start()  # TODO test timer thread
+                thread_timer.start()
                 TIMER_THREADS[session_name] = thread_timer
 
                 print("User \"%s\" started game successfully on session %s." % (user_name, session_name))
@@ -520,7 +445,9 @@ def on_request_start_game(ch, method, props, body):
 
         elif user_name not in connected_users:
             err = "Username \"%s\" is not in connected users list" % user_name
-            print(err)
+            connected_users.append(user_name)
+            reconnected = True
+            print "Put user %s back to players list" % user_name
         else:
             err = "Session \"%s\" does not exist anymore" % session_name
             print(err)
@@ -529,7 +456,7 @@ def on_request_start_game(ch, method, props, body):
         print("KeyError: %s" % str(e))
         err = str(e)
 
-    publish(ch, method, props, {'err': err})
+    publish(ch, method, props, {'err': err, 'reconnect': reconnected})
 
 
 def on_request_shoot(ch, method, props, body):
@@ -540,7 +467,7 @@ def on_request_shoot(ch, method, props, body):
     data = json.loads(body)
 
     msg = ""
-
+    reconnected = False
     # Lock thread for assigning next player. Timer is reset by shooting.
     TIMER_LOCK.acquire()
 
@@ -607,8 +534,10 @@ def on_request_shoot(ch, method, props, body):
                 print(err + " " + user_name)
 
         elif user_name not in connected_users:
-            err = "Username \"%s\" is not in connected users list" % user_name
+            err = "Username \"%s\" is not in connected users list, put back to list" % user_name
             print(err)
+            connected_users.append(user_name)
+            reconnected = True
         else:
             err = "Session \"%s\" does not exist anymore" % session_name
             print(err)
@@ -624,7 +553,125 @@ def on_request_shoot(ch, method, props, body):
     else:
         hit = True
 
-    publish(ch, method, props, {'err': err, 'msg': msg, 'hit': hit})
+    publish(ch, method, props, {'err': err, 'msg': msg, 'hit': hit, 'reconnect': reconnected})
+
+
+# HELPER FUNCTIONS
+
+def publish(ch, method, props, rsp):
+    """
+    Publish response to client RPC call
+
+    Args:
+        ch (channel): channel used to publish messages to RabbitMQ
+        method (method_frame): used to get delivery tag for acknowledging
+        props (header_frame): used to get reply_to routing key and correlation id
+        rsp (dict): dictionary containing response to client
+    """
+
+    response = json.dumps(rsp)
+
+    ch.basic_publish(exchange='',
+                     routing_key=props.reply_to,
+                     properties=pika.BasicProperties(correlation_id=props.correlation_id),
+                     body=response)
+    ch.basic_ack(delivery_tag=method.delivery_tag)
+
+
+def publish_to_topic(ch, key, rsp):
+    """
+    Publish message to topic_server topic exchange MQ
+    Messages about in-game, game session lobby activities
+
+    Args:
+        ch (channel): channel used to publish messages to RabbitMQ
+        key (str): routing key of published message
+        rsp (dict): dictionary containing response to client
+    """
+
+    response = json.dumps(rsp)
+
+    ch.basic_publish(exchange='topic_server', routing_key=key,
+                     body=response)
+
+
+def check_owner(sess, user_name, ch):
+    """
+    Check whether user is owner of the session if not then publish to queue
+
+    Args:
+        sess (GameSession): Instance of GameSession
+        user_name (str): Name of the player(user)
+        ch (BlockingConnection.channel): BlockingConnection channel to RabbitMQ
+    """
+
+    # check if player was owner of session
+    if sess.owner == user_name:
+        # len(players) must be >= 1 otherwise no other players left
+        if len(sess.players) >= 1:
+            for player in sess.players:
+                if player != sess.owner:
+                    sess.owner = player  # add new owner
+            publish_to_topic(ch, '%s.%s.info' % (SERVER_NAME, sess.session_name),
+                             {'msg': "%s is new owner of game (last owner left)" % sess.owner,
+                              'owner': sess.owner})
+
+
+def leave_game_lobby(sess, user_name, ch):
+    """
+    Remove player from game lobby and destroy game lobby it if no players left, also send messages about it to players
+
+    Args:
+        sess (GameSession): Instance of GameSession
+        user_name (str): Name of the player(user)
+        ch (BlockingConnection.channel): BlockingConnection channel to RabbitMQ
+    """
+    if len(sess.players) == 0:  # no players left in session - delete session
+        msg = "Game session %s is empty, session deleted" % sess.session_name
+        print(msg)
+        del SESSIONS[sess.session_name]  # only dict key deleted
+    else:  # send message about leaving lobby
+        publish_to_topic(ch, '%s.%s.info' % (SERVER_NAME, sess.session_name),
+                         {'msg': "%s left from session" % user_name, 'left': user_name})
+    # refresh sessions list
+    publish_to_topic(ch, '%s.sessions.info' % SERVER_NAME, sess.info())
+
+    # delete empty session
+    if len(sess.players) == 0:
+        del sess
+
+
+def check_player_activity(players, ch):
+    """
+
+    Args:
+        players (list[str]): List of active player(user)
+        ch (BlockingConnection.channel): BlockingConnection channel to RabbitMQ
+    """
+
+    for user in connected_users:
+        if user not in players:  # meaning player inactive
+            print "User %s is inactive" % user
+            print "Removed user %s from server" % user
+            connected_users.remove(user)  # remove user from server players list. So player could reconnect
+            for key in SESSIONS:  # check if user in any game session
+                sess = SESSIONS[key]
+                if user in sess.players:
+                    if sess.in_game:  # set player as inactive (so other players know and this player would be skipped)
+                        if user in sess.player_active:
+                            sess.players_active.remove(user)
+                            print("%s is inactive" % user)
+                            publish_to_topic(ch, '%s.%s.info' % (SERVER_NAME, sess.session_name),
+                                             {'msg': "%s is inactive" % user, 'inactive': True})
+                    else:  # remove player from game lobby
+                        # clean player info
+                        sess.clean_player_info(user)
+                        # check whether owner and if then publish message about it
+                        check_owner(sess, user, ch)
+                        leave_game_lobby(sess, user, ch)
+                        print("User %s kicked from lobby" % user)
+
+                    break  # user found
 
 
 class CheckTurnTime(Thread):

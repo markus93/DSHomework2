@@ -93,7 +93,7 @@ class GameSession:
 
         if list_players_left != len(self.players_alive):
             for player in self.players_alive:
-                if player not in list_players_left:  # in this case all players ships have been destroyed
+                if player not in list_players_left:  # in this case all of player's ships have been destroyed
                     self.players_alive.remove(player)
                     return player
         else:
