@@ -40,10 +40,6 @@ def server_main(args):
     except (KeyboardInterrupt, SystemExit):
         # On Windows we don't make it to here :(
         print('Shutting down...')
-
-    except Exception as e:
-        print('Error occured: shutting down...')
-        raise e
     finally:
         connection.close()
 
