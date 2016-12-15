@@ -143,15 +143,15 @@ class GameSession:
             list[[int,int]]: list of coordinates containing ship coordinates
         """
 
-        max_y = 20 + 3
-        max_x = self.max_players * 6 - 1
+        field_length_x = self.max_players * 6 - 1
+        field_length_y = 20 + 3
         x = coords[0]
         y = coords[1]
 
+
         ship_coords = [coords]
 
-        # TODO refactor these for-loops
-        for i in range(1, 4):  # max length of ship is 4
+        for i in range(1, 5):  # max length of ship is 5 (each square is 5X5)
             if (y - i) >= 0:  # check up
                 spot_info = self.battlefield[x][y - i]
                 if spot_info == 2 or spot_info == 1:
@@ -162,7 +162,7 @@ class GameSession:
                 break
 
         for i in range(1, 4):  # max length of ship is 4
-            if (y + i) <= max_y:  # check down
+            if (y + i) < field_length_y:  # check down (y must be smaller than field width)
                 spot_info = self.battlefield[x][y + i]
                 if spot_info == 2 or spot_info == 1:
                     ship_coords.append([x, y+i])
@@ -182,7 +182,7 @@ class GameSession:
                 break
 
         for i in range(1, 4):  # max length of ship is 4
-            if (x + i) <= max_x:  # check right
+            if (x + i) < field_length_x:  # check right (x must be smaller than field height)
                 spot_info = self.battlefield[x + i][y]
                 if spot_info == 2 or spot_info == 1:
                     ship_coords.append([x+i, y])
@@ -254,8 +254,6 @@ class GameSession:
         # Add ships to map
         for coord in coords:
             ship_map[coord[0]][coord[1]] = 2
-
-        # TODO check if ship placement is valid - are right ships assigned and placed right way in right map pieces
 
         self.battlefield = ship_map
 
@@ -374,7 +372,7 @@ class GameSession:
         self.battlefield = [x[:] for x in [[0] * (20 + 3)] * (self.max_players * 6 - 1)]
         self.ships_placed = []
         self.next_shot_by = self.owner
-        self.players = self.players_active  # TODO reconnecting players should still be able to see that game is over
+        self.players = self.players_active
         self.players_active = []
         self.players_alive = []
 

@@ -157,7 +157,7 @@ def on_request_join_session(ch, method, props, body):
             err = ""
 
             # check whether spot in game session is free
-            players = sess.players
+            players = sess.players[:]
             max_count = sess.max_players
 
             if sess.in_game:
@@ -438,7 +438,7 @@ def on_request_start_game(ch, method, props, body):
                 if len(sess.players) > 1:
                     err = "All players are not ready!"
                 else:
-                    err = "Only one player in game."
+                    err = "Need more than one player to start."
                 print err
                 publish_to_topic(ch, '%s.%s.info' % (SERVER_NAME, session_name),
                                  {'msg': ("%s tried to start game - " % user_name) + err})
@@ -658,7 +658,7 @@ def check_player_activity(players, ch):
                 sess = SESSIONS[key]
                 if user in sess.players:
                     if sess.in_game:  # set player as inactive (so other players know and this player would be skipped)
-                        if user in sess.player_active:
+                        if user in sess.players_active:
                             sess.players_active.remove(user)
                             print("%s is inactive" % user)
                             publish_to_topic(ch, '%s.%s.info' % (SERVER_NAME, sess.session_name),
@@ -700,7 +700,7 @@ class CheckTurnTime(Thread):
         while self._is_running:
             TIMER_LOCK.acquire()  # lock while assigning next player
             if self.sess.in_game:
-                if time() - self.turn_start_time >= self.turn_time:
+                if (time() - self.turn_start_time) >= self.turn_time:
                     print("Player didn't send response in time (10 seconds)")
                     current_player = self.sess.next_shot_by
                     next_player = self.sess.get_next_player()
