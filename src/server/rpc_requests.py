@@ -60,9 +60,25 @@ def publish_to_topic(ch, key, rsp):
 
 def check_player_activity(players):
     # TODO remove user from connected users list, from lobby (in_game=false) or make inactive
-    print "Check player activity"
-    for player in players:
-        print player
+    #print "Check player activity"
+    for user in connected_users:
+        if user not in players:  # meaning player inactive
+            print "User %s is inactive" % user
+            print "Removed user %s from server" % user
+            connected_users.remove(user)
+            # check if user in game session
+            for key in SESSIONS:
+                sess = SESSIONS[key]
+                if user in sess.players:
+                    if sess.in_game:
+                        print("User in game")
+                        if user in sess.player_acitve:
+                            sess.players_active.remove(user)
+                            # TODO send msg about user inactivity
+                    else:
+                        # TODO msg about it
+                        sess.players.remove(user)
+                        print("User kicked from lobby")
 
 
 def on_request_connect(ch, method, props, body):
@@ -555,19 +571,13 @@ def on_request_shoot(ch, method, props, body):
                     # shot hit
                     msg = "You hit a ship."
                     print("Shot hit!")
-                    hit_name = sess.get_ship_owner(coords)
-                    msg2 = "Your ship was hit by %s" % user_name
-                    # message to player who was hit
-                    publish_to_topic(ch, '%s.%s.%s' % (SERVER_NAME, session_name, hit_name),
-                                     {'msg': msg2, 'coords': coords})  # meant only for hit player
-
                 else:
                     # ship sunk
                     msg = "You hit and sunk a ship."
                     ship_coords = sess.get_ship_coordinates(coords)
 
                     publish_to_topic(ch, '%s.%s.info' % (SERVER_NAME, session_name),
-                                     {'msg': "%s sunk a ship" % user_name, 'ship_coords': ship_coords})
+                                     {'msg': "%s sunk a ship" % user_name, 'sunk': ship_coords})
 
                     # check whether any player lost a game and if only one player left
                     player_lost = sess.check_end_game()
@@ -590,7 +600,7 @@ def on_request_shoot(ch, method, props, body):
                     next_player = sess.get_next_player()
 
                     publish_to_topic(ch, '%s.%s.info' % (SERVER_NAME, session_name),
-                                     {'msg': "%s's turn." % next_player, 'next': next_player, 'coords': coords})
+                                     {'msg': "%s's turn." % next_player, 'next': next_player, 'shot': coords})
             else:
                 # it not given players turn to shoot
                 err = "It is not your turn to shoot"
@@ -609,7 +619,12 @@ def on_request_shoot(ch, method, props, body):
     finally:
         TIMER_LOCK.release()
 
-    publish(ch, method, props, {'err': err, 'msg': msg, 'res': res})
+    if res == 0:
+        hit = False
+    else:
+        hit = True
+
+    publish(ch, method, props, {'err': err, 'msg': msg, 'hit': hit})
 
 
 class CheckTurnTime(Thread):
