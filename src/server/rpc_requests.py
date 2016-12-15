@@ -166,6 +166,7 @@ def on_request_join_session(ch, method, props, body):
                     print("Player %s reconnects to session" % user_name)
                     # set player back to active, so he could shoot, send back battlefield showing only his ships
                     battlefield = sess.get_player_battlefield(user_name)
+                    map_pieces = sess.get_map_pieces(user_name)
                     if user_name not in sess.players_active:
                         sess.players_active.append(user_name)
 
