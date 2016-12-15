@@ -30,7 +30,7 @@ def server_main(args):
     server_announcements_thread = None
     connection = None
 
-    # Initialize connection with mq, TODO save server info upon closing
+    # Initialize connection with mq
     try:
         channel, connection = init_connection_to_mq(args)
 
@@ -61,7 +61,7 @@ def init_connection_to_mq(args):
     Create new connection with MQ and declare queues for RPC and topic exchange
     """
 
-    server_name = args.name  # TODO server name should be unique
+    server_name = args.name  # server name should be unique
     rpc_requests.SERVER_NAME = server_name  # add server name also to rpc_request variables
 
     connection = pika.BlockingConnection(pika.ConnectionParameters(
