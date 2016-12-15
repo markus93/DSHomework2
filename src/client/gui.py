@@ -786,21 +786,35 @@ class GameFrame(BaseGameFrame):
 
     def reconnect_game(self, player_list, next_player, battlefield, map_pieces, game_size):
         """
-        Reconnect after becoming inactive.
+        Reconnect after becoming inactive. Restores the playing field. (a mess)
         """
 
-        players_list = [{'name': player_name} for player_name in player_list]
+        self.players_list = [{'name': player_name, 'next': next_player == player_name, 'gameover': False}
+                             for player_name in player_list]
 
         self.game_size = game_size
         self.map_pieces = map_pieces
 
-        my_ships = []
+        self.ship_coords = []
         for x in self.xs:
             for y in self.ys:
                 if battlefield[y][x] in (1, 2) and self.can_have_my_ship(x, y):
-                    my_ships.append((y, x))
+                    self.ship_coords.append((y, x))
 
-        self.reconnect_game(players_list, next_player, my_ships, map_pieces, game_size)
+        self.init_field()
+        if next_player == self.parent.player_name:
+            self.start_turn()
+
+        self.update_players_list()
+
+        for x in self.xs:
+            for y in self.ys:
+
+                if battlefield[y][x] in (1, 2):
+                    self.game_field[y][x].make_ship()
+
+                if battlefield[y][x] == 1:
+                    self.game_field[y][x].hit()
 
     def start_turn(self):
         """
