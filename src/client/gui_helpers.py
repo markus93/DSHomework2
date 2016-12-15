@@ -67,10 +67,11 @@ class BaseGameFrame(Tkinter.Frame, object):
 
         # Define and position widgets
         self.leave_game_button = Tkinter.Button(self, text="<< Leave game", command=self.leave_game)
-        self.leave_game_button.grid(row=0, column=0, columnspan=10)
+        self.leave_game_button.grid(row=0, column=0, columnspan=10, sticky=Tkinter.W)
 
         self.players_listbox = Tkinter.Listbox(self, selectmode=Tkinter.SINGLE)
-        self.players_listbox.grid(row=1, column=SQUARES_IN_A_ROW * (SQUARE_SIDE_LENGTH + SQUARE_BUFFER_SIZE), rowspan=10)
+        self.players_listbox.grid(row=1, column=SQUARES_IN_A_ROW * (SQUARE_SIDE_LENGTH + SQUARE_BUFFER_SIZE),
+                                  rowspan=10, sticky=Tkinter.N)
 
     def leave_game(self):
         """
@@ -106,7 +107,7 @@ class BaseGameFrame(Tkinter.Frame, object):
                 else:
                     game_field_row[-1].make_water()
 
-                game_field_row[-1].grid(row=y+1, column=x)
+                game_field_row[-1].grid(row=y+2, column=x)
 
             self.game_field.append(game_field_row)
 
@@ -120,8 +121,10 @@ class BaseGameFrame(Tkinter.Frame, object):
                 widget.grid_remove()
                 widget.destroy()
 
-        self.game_field = [[]]
-        self.ship_coords = []
+        self.game_field = []
+        self.map_pieces = []
+        self.game_size = None
+        self.players_list = []
 
     def reset_field(self):
         """

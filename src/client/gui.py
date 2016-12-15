@@ -525,7 +525,8 @@ class GameSetupFrame(BaseGameFrame):
         Signal the server, that the game can start.
         """
         if self.parent.ship_placement(self.ship_coords):
-            self.parent.start_game()
+            if self.parent.start_game():
+                self.clear_field()
 
     def ready(self):
         """
@@ -713,6 +714,12 @@ class GameFrame(BaseGameFrame):
 
         # Define and position the widgets
 
+        self.messages_listbox = Tkinter.Listbox(self, selectmode=Tkinter.SINGLE)
+        self.messages_listbox.grid(row=1, column=SQUARES_IN_A_ROW * (SQUARE_SIDE_LENGTH + SQUARE_BUFFER_SIZE) + 1,
+                                   rowspan=10, sticky=Tkinter.N)
+
+
+
     def start_game(self, players_list, next_player, my_ships, map_pieces, game_size):
         """
         Start playing the game.
@@ -727,6 +734,7 @@ class GameFrame(BaseGameFrame):
         Returns:
 
         """
+
         self.ship_coords = my_ships
         self.game_size = game_size
         self.map_pieces = map_pieces
@@ -775,7 +783,7 @@ class GameFrame(BaseGameFrame):
         if self.parent.shoot(x, y):
             self.game_field[y][x].make_ship()
 
-    def update_game_info(self, next=None, shot=None, sunk=None, gameover=None, active=None, **kwargs):
+    def update_game_info(self, next=None, shot=None, sunk=None, gameover=None, active=None, msg=None, **kwargs):
         """
         Updates based on information sent to everybody.
 
@@ -810,8 +818,25 @@ class GameFrame(BaseGameFrame):
                 if player['name'] == gameover:
                     player['gameover'] = True
 
+        if active is not None:
+            # Game has ended
+            pass
+
+        if msg is not None:
+            self.add_message(msg)
+
     def update_player_info(self, spec_fields=None, **kwargs):
-        pass
+        """
+        Updates that are directed to single player
+
+        Args:
+            spec_fields (list[list[int]]): info about all the positions
+                -1 - water, with a hit
+                0 - plain water
+                1 - ship
+                2 - ship that is hit
+            **kwargs:
+        """
 
     def update_players_list(self):
         """
@@ -829,3 +854,16 @@ class GameFrame(BaseGameFrame):
                 player_name += ' (lost)'
 
             self.players_listbox.insert(Tkinter.END, player_name)
+
+    def add_message(self, msg):
+        """
+        Add message to self.message_listbox
+
+        Args:
+            msg (str): message froms erver
+        """
+
+        self.messages_listbox.insert(0, msg)
+
+
+#TODO: active=False, messagebox, restart game, new owner in game info, disconnect - reconnect ('inactive')
