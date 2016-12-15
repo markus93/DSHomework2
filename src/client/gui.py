@@ -200,9 +200,10 @@ class RootWindow(Tkinter.Tk, object):
             bool: True if operation was a success, False on error
         """
 
-        response = self.rpc.leave_session(user=self.player_name, sname=self.game_name)
+        if not self.game_frame.game_over:
+            response = self.rpc.leave_session(user=self.player_name, sname=self.game_name)
 
-        if response['err']:
+        if not self.game_frame.game_over and response['err']:
             tkMessageBox.showerror('Error', response['err'])
             return False
         else:
@@ -718,8 +719,6 @@ class GameFrame(BaseGameFrame):
         self.messages_listbox.grid(row=1, column=SQUARES_IN_A_ROW * (SQUARE_SIDE_LENGTH + SQUARE_BUFFER_SIZE) + 1,
                                    rowspan=10, sticky=Tkinter.N)
 
-
-
     def start_game(self, players_list, next_player, my_ships, map_pieces, game_size):
         """
         Start playing the game.
@@ -783,7 +782,8 @@ class GameFrame(BaseGameFrame):
         if self.parent.shoot(x, y):
             self.game_field[y][x].make_ship()
 
-    def update_game_info(self, next=None, shot=None, sunk=None, gameover=None, active=None, msg=None, **kwargs):
+    def update_game_info(self, next=None, shot=None, sunk=None, gameover=None,
+                         active=None, msg=None,  owner=None, left=None, **kwargs):
         """
         Updates based on information sent to everybody.
 
@@ -820,23 +820,38 @@ class GameFrame(BaseGameFrame):
 
         if active is not None:
             # Game has ended
-            pass
+            self.game_over = True
+            self.end_turn()
 
         if msg is not None:
             self.add_message(msg)
 
-    def update_player_info(self, spec_fields=None, **kwargs):
+        if owner is not None:
+            for player in self.players_list:
+                if player['name'] == owner:
+                    player['owner'] = True
+                else:
+                    player['owner'] = False
+
+        if left is not None:
+            self.players_list = [player for player in self.players_list if player['name'] != left]
+
+        self.update_players_list()
+
+    def update_player_info(self, spec_field=None, **kwargs):
         """
         Updates that are directed to single player
 
         Args:
-            spec_fields (list[list[int]]): info about all the positions
+            spec_field (list[list[int]]): info about all the positions
                 -1 - water, with a hit
-                0 - plain water
-                1 - ship
-                2 - ship that is hit
+                0 - water
+                1 - ship, hit
+                2 - ship
             **kwargs:
         """
+
+        print(kwargs)
 
     def update_players_list(self):
         """
@@ -866,4 +881,4 @@ class GameFrame(BaseGameFrame):
         self.messages_listbox.insert(0, msg)
 
 
-#TODO: active=False, messagebox, restart game, new owner in game info, disconnect - reconnect ('inactive')
+#TODO: active=False, restart game, disconnect - reconnect ('inactive')

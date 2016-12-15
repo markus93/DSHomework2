@@ -64,6 +64,7 @@ class BaseGameFrame(Tkinter.Frame, object):
         self.map_pieces = []
         self.game_size = None
         self.players_list = []
+        self.game_over = False
 
         # Define and position widgets
         self.leave_game_button = Tkinter.Button(self, text="<< Leave game", command=self.leave_game)
@@ -79,9 +80,11 @@ class BaseGameFrame(Tkinter.Frame, object):
         """
 
         self.parent.leave_game()
+        self.game_over = False
 
         self.game_size = None
         self.map_pieces = []
+        self.players_list = []
 
         self.clear_field()
 
@@ -122,9 +125,6 @@ class BaseGameFrame(Tkinter.Frame, object):
                 widget.destroy()
 
         self.game_field = []
-        self.map_pieces = []
-        self.game_size = None
-        self.players_list = []
 
     def reset_field(self):
         """
