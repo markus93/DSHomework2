@@ -145,6 +145,7 @@ class RootWindow(Tkinter.Tk, object):
             self.show_frame(self.game_setup_frame)
 
             self.game_name = game_name
+            self.game_size = game_size
             self.game_setup_frame.join_game(game_size, response['map'], owner=True)
             self.game_listener = GameListener('{0}.{1}.info'.format(self.rpc.server_name, self.game_name),
                                               self.connection_args, self.game_setup_frame.update_players_list)
@@ -167,7 +168,6 @@ class RootWindow(Tkinter.Tk, object):
         """
 
         response = self.rpc.join_session(user=self.player_name, sname=game_name)
-        print(response)
 
         if response['err']:
             tkMessageBox.showerror('Error', response['err'])
@@ -176,6 +176,7 @@ class RootWindow(Tkinter.Tk, object):
             self.show_frame(self.game_setup_frame)
 
             self.game_name = game_name
+            self.game_size = game_size
             self.game_setup_frame.join_game(game_size, response['map'])
             self.game_listener = GameListener('{0}.{1}.info'.format(self.rpc.server_name, self.game_name),
                                               self.connection_args, self.game_setup_frame.update_players_list)
@@ -289,7 +290,7 @@ class RootWindow(Tkinter.Tk, object):
                 self.rpc.server_name, self.game_name, self.player_name),
                 self.connection_args, self.game_frame.update_player_info)
 
-        self.game_frame.start_game(players_list, next_player, my_ships, map_pieces)
+        self.game_frame.start_game(players_list, next_player, my_ships, map_pieces, self.game_size)
 
     def shoot(self, x, y):
         """
@@ -309,8 +310,7 @@ class RootWindow(Tkinter.Tk, object):
             tkMessageBox.showerror('Error', response['err'])
             return False
         else:
-            print response
-            return True
+            return response['hit']
 
 
 class ServerSelectionFrame(Tkinter.Frame, object):
@@ -557,8 +557,13 @@ class GameSetupFrame(BaseGameFrame):
         super(GameSetupFrame, self).init_field()
 
         #self.next_ships = [4, 3, 3, 2, 2, 2, 1, 1, 1, 1]
-        self.next_ships = [1, 1]  # TODO I modified that for easier testing
+        self.next_ships = [2, 1]  # TODO I modified that for easier testing
         self.reset_field_button.grid(row=0, column=SQUARES_IN_A_ROW * (SQUARE_SIDE_LENGTH + SQUARE_BUFFER_SIZE))
+
+        for y in self.ys:
+            for x in self.xs:
+                if self.can_have_my_ship(x, y):
+                    self.game_field[y][x].change_state()
 
     def clear_field(self):
         """
@@ -704,17 +709,59 @@ class GameFrame(BaseGameFrame):
         """
         super(GameFrame, self).__init__(parent)
 
+        self.my_turn = False
+
         # Define and position the widgets
 
-        # self.game_field = [[]]
+    def start_game(self, players_list, next_player, my_ships, map_pieces, game_size):
+        """
+        Start playing the game.
 
-    def start_game(self, players_list, next_player, my_ships, map_pieces):
+        Args:
+            players_list (list[dict]): List of players
+            next_player (str): Name of the next player
+            my_ships (list[tuple]): List of ship coordinates
+            map_pieces (list[int]): List of indices of map pieces, that belong to the user
+            game_size (int): Max number of players
+
+        Returns:
+
+        """
         self.ship_coords = my_ships
-        self.game_size = len(players_list)
+        self.game_size = game_size
         self.map_pieces = map_pieces
-        self.init_field(in_game=True)
-        # Init field with my ships, shoot_button inactive if next_player != player. Add players to list?
-        pass
+        self.players_list = [{'name': player['name'], 'next': next_player == player['name'], 'gameover': False}
+                             for player in players_list]
+
+        self.init_field()
+        if next_player == self.parent.player_name:
+            self.start_turn()
+
+        self.update_players_list()
+
+    def start_turn(self):
+        """
+        Make the field active and start the turn.
+        """
+
+        self.my_turn = True
+
+        for y in self.ys:
+            for x in self.xs:
+                if not self.is_mine(x, y):
+                    self.game_field[y][x].change_state()
+
+    def end_turn(self):
+        """
+        End the players turn
+        """
+
+        self.my_turn = False
+
+        for y in self.ys:
+            for x in self.xs:
+                if not self.is_mine(x, y):
+                    self.game_field[y][x].change_state(active=False)
 
     def on_click(self, x, y):
         """
@@ -725,10 +772,60 @@ class GameFrame(BaseGameFrame):
             y (int): y-coordinate
         """
 
-        self.parent.shoot(x, y)  # TODO tested rpc shoot
+        if self.parent.shoot(x, y):
+            self.game_field[y][x].make_ship()
 
-    def update_game_info(self, **kwargs):
-        print(kwargs)
+    def update_game_info(self, next=None, shot=None, sunk=None, gameover=None, active=None, **kwargs):
+        """
+        Updates based on information sent to everybody.
 
-    def update_player_info(self, **kwargs):
-        print(kwargs)
+        Args:
+            next (str): Next players name
+            shot (tuple): coordinates of shot
+            sunk (list[(int, int)]): list of coordinates of sunken ship
+            gameover (str): Player who lost
+            active (bool): False if game is over
+            **kwargs:
+        """
+
+        if next is not None:
+            if next == self.parent.player_name and self.my_turn:
+                pass # I made a successfull hit
+
+            elif next == self.parent.player_name:
+                self.start_turn()
+
+            elif self.my_turn:
+                self.end_turn()
+
+        if shot is not None:
+            self.game_field[shot[0]][shot[1]].hit()
+
+        if sunk is not None:
+            for y, x in sunk:
+                self.game_field[y][x].sunk()
+
+        if gameover is not None:
+            for player in self.players_list:
+                if player['name'] == gameover:
+                    player['gameover'] = True
+
+    def update_player_info(self, spec_fields=None, **kwargs):
+        pass
+
+    def update_players_list(self):
+        """
+        Update the list of players
+        """
+
+        self.players_listbox.delete(0, Tkinter.END)
+        for player in self.players_list:
+            player_name = player['name']
+
+            if player['next']:
+                player_name += ' (shooting)'
+
+            if player['gameover']:
+                player_name += ' (lost)'
+
+            self.players_listbox.insert(Tkinter.END, player_name)

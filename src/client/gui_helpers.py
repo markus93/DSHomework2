@@ -84,16 +84,16 @@ class BaseGameFrame(Tkinter.Frame, object):
 
         self.clear_field()
 
-    def init_field(self, in_game=False):
+    def init_field(self):
         """
         Initialize the playing field
         """
 
         self.game_field = []
-        for y in range(self.game_size * SQUARE_SIDE_LENGTH + (self.game_size - 1) * SQUARE_BUFFER_SIZE):
+        for y in self.ys:
             game_field_row = []
 
-            for x in range(SQUARES_IN_A_ROW * SQUARE_SIDE_LENGTH + (SQUARES_IN_A_ROW - 1) * SQUARE_BUFFER_SIZE):
+            for x in self.xs:
 
                 is_my_square = self.is_mine(x, y)
                 game_square = GameSquare(self, owner=is_my_square,
@@ -103,12 +103,8 @@ class BaseGameFrame(Tkinter.Frame, object):
 
                 if (y, x) in self.ship_coords:
                     game_field_row[-1].make_ship()
-                elif in_game:
-                    # true if not my square and not in buffer else false
-                    active = not is_my_square and not self.is_buffer(x,y)
-                    game_field_row[-1].make_water(active)
                 else:
-                    game_field_row[-1].make_water(is_my_square)
+                    game_field_row[-1].make_water()
 
                 game_field_row[-1].grid(row=y+1, column=x)
 
@@ -153,6 +149,14 @@ class BaseGameFrame(Tkinter.Frame, object):
     def is_mine(self, x, y):
         return self.square_n(x, y) in self.map_pieces and not self.is_buffer(x, y)
 
+    @property
+    def xs(self):
+        return range(SQUARES_IN_A_ROW * SQUARE_SIDE_LENGTH + (SQUARES_IN_A_ROW - 1) * SQUARE_BUFFER_SIZE)
+
+    @property
+    def ys(self):
+        return range(self.game_size * SQUARE_SIDE_LENGTH + (self.game_size - 1) * SQUARE_BUFFER_SIZE)
+
     @classmethod
     def square_n(cls, x, y):
         return cls.square_cord(x) + SQUARES_IN_A_ROW*cls.square_cord(y)
@@ -177,26 +181,27 @@ class GameSquare(Tkinter.Button, object):
             owner (bool): True if you are owner, false otherwise
             command (func): on_click handler
         """
-        super(GameSquare, self).__init__(parent, height=1, width=1, command=command)
+        super(GameSquare, self).__init__(parent, height=1, width=1, command=command,
+                                         state=Tkinter.DISABLED, highlightbackground='blue')
 
         self.owner = owner
+        self.ship = False
+        self.damaged = False
 
-        self.make_water(owner)
-
-    def make_water(self, active):
+    def make_water(self):
         """
         Turn the square into water
         """
 
-        self.configure(bg='blue' if active else 'blue4')
-        self.change_state(active)
+        self.ship = False
+        self.configure(bg='blue' if self.owner else 'blue4')
 
     def make_ship(self):
         """
         Turn the square into ship
         """
 
-        self.change_state(False)
+        self.ship = True
         self.configure(bg='green2' if self.owner else 'red2')
 
     def change_state(self, active=True):
@@ -204,7 +209,10 @@ class GameSquare(Tkinter.Button, object):
         self.config(highlightbackground='alice blue' if active else 'blue')
 
     def hit(self):
-        self.configure(text=u'\u2022')
+        if not self.damaged:
+            self.configure(text=u'\u2022')
+            self.damaged = True
 
     def sunk(self):
         self.configure(text=u'\u2573')
+        self.damaged = True
