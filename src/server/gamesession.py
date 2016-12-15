@@ -162,7 +162,7 @@ class GameSession:
                 break
 
         for i in range(1, 4):  # max length of ship is 4
-            if (y + i) <= max_x:  # check down
+            if (y + i) <= max_y:  # check down
                 spot_info = self.battlefield[x][y + i]
                 if spot_info == 2 or spot_info == 1:
                     ship_coords.append([x, y+i])
@@ -182,7 +182,7 @@ class GameSession:
                 break
 
         for i in range(1, 4):  # max length of ship is 4
-            if (x + i) <= max_y:  # check right
+            if (x + i) <= max_x:  # check right
                 spot_info = self.battlefield[x + i][y]
                 if spot_info == 2 or spot_info == 1:
                     ship_coords.append([x+i, y])
