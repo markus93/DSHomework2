@@ -123,8 +123,12 @@ class GameSession:
 
         for i in range(1, len(self.players)+1):
 
-            next_idx = self.players.index(current) + i
-            next_p = self.players[next_idx % len(self.players)]
+            if current in self.players:
+
+                next_idx = self.players.index(current) + i
+                next_p = self.players[next_idx % len(self.players)]
+            else:
+                next_p = self.players[0]
 
             if next_p in self.players_active and next_p in self.players_alive:
                 self.next_shot_by = next_p
