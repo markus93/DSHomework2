@@ -99,14 +99,12 @@ class BaseGameFrame(Tkinter.Frame, object):
                 game_square = GameSquare(self, owner=is_my_square,
                                          command=lambda x_=x, y_=y: self.on_click(x_, y_))
 
-
-
                 game_field_row.append(game_square)
 
                 if (y, x) in self.ship_coords:
                     game_field_row[-1].make_ship()
                 elif in_game:
-                    #true if not my square and not in buffer else false
+                    # true if not my square and not in buffer else false
                     active = not is_my_square and not self.is_buffer(x,y)
                     game_field_row[-1].make_water(active)
                 else:

@@ -34,7 +34,7 @@ class RootWindow(Tkinter.Tk, object):
         self.player_listener = None
 
         # Show the first frame
-        self.server_selection_frame.pack(fill=Tkinter.BOTH)
+        self.show_frame(self.server_selection_frame)
 
     def on_exit(self):
         """
@@ -61,6 +61,16 @@ class RootWindow(Tkinter.Tk, object):
 
         self.destroy()
 
+    def show_frame(self, new_frame):
+        """
+        Hide all other frames
+        """
+        for frame in (self.server_selection_frame, self.lobby_frame, self.game_setup_frame, self.game_frame):
+            if frame.winfo_ismapped():
+                frame.pack_forget()
+
+        new_frame.pack(fill=Tkinter.BOTH)
+
     def join_server(self, server_name, nickname):
         """
         Join the server and display the lobby_frame
@@ -83,8 +93,7 @@ class RootWindow(Tkinter.Tk, object):
             return False
         else:
             self.player_name = nickname
-            self.server_selection_frame.pack_forget()
-            self.lobby_frame.pack(fill=Tkinter.BOTH)
+            self.show_frame(self.lobby_frame)
 
             self.lobby_frame.update_games_list(response['sessions'])
             self.server_listener = ServerListener('{0}.sessions.info'.format(self.rpc.server_name),
@@ -108,8 +117,7 @@ class RootWindow(Tkinter.Tk, object):
             self.player_name = None
             self.rpc.server_name = None
 
-            self.lobby_frame.pack_forget()
-            self.server_selection_frame.pack(fill=Tkinter.BOTH)
+            self.show_frame(self.server_selection_frame)
 
             self.server_listener.exit()
             self.server_listener = None
@@ -134,8 +142,7 @@ class RootWindow(Tkinter.Tk, object):
             tkMessageBox.showerror('Error', response['err'])
             return False
         else:
-            self.lobby_frame.pack_forget()
-            self.game_setup_frame.pack()
+            self.show_frame(self.game_setup_frame)
 
             self.game_name = game_name
             self.game_setup_frame.join_game(game_size, response['map'], owner=True)
@@ -166,8 +173,7 @@ class RootWindow(Tkinter.Tk, object):
             tkMessageBox.showerror('Error', response['err'])
             return False
         else:
-            self.lobby_frame.pack_forget()
-            self.game_setup_frame.pack()
+            self.show_frame(self.game_setup_frame)
 
             self.game_name = game_name
             self.game_setup_frame.join_game(game_size, response['map'])
@@ -199,8 +205,7 @@ class RootWindow(Tkinter.Tk, object):
             tkMessageBox.showerror('Error', response['err'])
             return False
         else:
-            self.lobby_frame.pack()
-            self.game_setup_frame.pack_forget()
+            self.show_frame(self.lobby_frame)
 
             self.game_listener.exit()
             self.game_listener = None
@@ -272,9 +277,9 @@ class RootWindow(Tkinter.Tk, object):
             players_list (list[dict]): List of players
             next_player (str): Player who will start the game
             my_ships (list[tuple]): List of my ships coordinates
+            map_pieces (list[int]): List of map pieces that belong to the user.
         """
-        self.game_frame.pack()
-        self.game_setup_frame.pack_forget()
+        self.show_frame(self.game_frame)
         self.game_listener.exit()
 
         self.game_listener = GameListener('{0}.{1}.info'.format(self.rpc.server_name, self.game_name),
@@ -298,7 +303,7 @@ class RootWindow(Tkinter.Tk, object):
             bool: True if operation was a success, False on error
         """
 
-        response = self.rpc.shoot(user=self.player_name, sname=self.game_name, coords = [x,y])
+        response = self.rpc.shoot(user=self.player_name, sname=self.game_name, coords=(y, x))
 
         if response['err']:
             tkMessageBox.showerror('Error', response['err'])
