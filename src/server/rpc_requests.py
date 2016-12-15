@@ -209,7 +209,7 @@ def on_request_join_session(ch, method, props, body):
     # response to player
     if err == "" and sess.in_game:  # reconnecting user
         publish(ch, method, props, {'err': err, 'map': map_pieces, 'battlefield': battlefield,
-                                    'next': sess.next_shot_by})
+                                    'next': sess.next_shot_by, 'player_list': sess.players})
 
     elif err == "" and user_name in sess.players:  # means player joined successfully
         other_players = sess.players[:]
