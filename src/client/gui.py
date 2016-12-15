@@ -576,8 +576,7 @@ class GameSetupFrame(BaseGameFrame):
 
         super(GameSetupFrame, self).init_field()
 
-        #self.next_ships = [4, 3, 3, 2, 2, 2, 1, 1, 1, 1]
-        self.next_ships = [2, 1]  # TODO I modified that for easier testing
+        self.next_ships = [4, 3, 3, 2, 2, 2, 1, 1, 1, 1]
         self.reset_field_button.grid(row=0, column=SQUARES_IN_A_ROW * (SQUARE_SIDE_LENGTH + SQUARE_BUFFER_SIZE))
 
         for y in self.ys:
@@ -909,6 +908,3 @@ class GameFrame(BaseGameFrame):
         """
 
         self.messages_listbox.insert(0, msg)
-
-
-#TODO: restart game, disconnect - reconnect ('inactive')
