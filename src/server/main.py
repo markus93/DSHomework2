@@ -3,8 +3,9 @@
 # Import------------------------------------------------------------------------
 import pika
 import time
-from threading import Thread
+from threading import Thread, Timer
 import rpc_requests
+from common import BaseListener
 
 
 # Info-------------------------------------------------------------------------
@@ -25,6 +26,10 @@ def server_main(args):
     Call this method to set up and start server
     """
 
+    global_listener = None
+    server_announcements_thread = None
+    connection = None
+
     # Initialize connection with mq, TODO save server info upon closing
     try:
         channel, connection = init_connection_to_mq(args)
@@ -32,6 +37,8 @@ def server_main(args):
         # Start announcing server name to topic_server (so client could check whether server is online)
         server_announcements_thread = ServerAnnouncements(args.name, channel)
         server_announcements_thread.start()
+
+        #global_listener = GlobalListener(args, rpc_requests.check_player_activity)
 
         print "Server %s is up and running" % args.name
 
@@ -41,7 +48,12 @@ def server_main(args):
         # On Windows we don't make it to here :(
         print('Shutting down...')
     finally:
-        connection.close()
+        if server_announcements_thread is not None:
+            server_announcements_thread.exit()
+        if global_listener is not None:
+            global_listener.exit()
+        if connection is not None:
+            connection.close()
 
 
 def init_connection_to_mq(args):
@@ -109,3 +121,31 @@ class ServerAnnouncements(Thread):
             self.channel.basic_publish(exchange='topic_server', routing_key='%s.info' % self.server_name,
                                        body=self.server_name)
             time.sleep(1)
+
+    def exit(self):
+        self._is_running = False
+
+
+class GlobalListener(BaseListener):
+
+    def __init__(self, args, callback):
+        """
+        Listen for players announcing themselves.
+        Calls callback with list of active player names.
+        """
+        super(GlobalListener, self).__init__('players.info', args, callback, name='GlobalListener')
+
+        # And now the thread logic
+        self.players = {}
+        self.update_players_activity()
+
+    def callback(self, ch, method, props, body):
+        self.players[body] = time.time()
+
+    def update_players_activity(self):
+        current_time = time.time()
+        self.external_callback(player_name for player_name, last_seen in self.players.items()
+                               if last_seen > current_time - 5)
+
+        if self._is_running:
+            Timer(1, self.update_players_activity).start()

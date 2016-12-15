@@ -3,6 +3,7 @@ import json
 import uuid
 import time
 from threading import Thread, Timer
+from common import BaseListener
 
 CONNECTION_TIMEOUT = 3
 
@@ -88,58 +89,6 @@ class RPCClient(object):
         self.timer.start()
 
 
-class BaseListener(Thread):
-
-    def __init__(self, key, args, callback, **kwargs):
-        """
-        Baseclass for listeners.
-
-        Args:
-            key (str): Name of rabbitmq key that to listen for
-            args:
-            callback: External callback function to call after reciveing from server(s).
-        """
-        super(BaseListener, self).__init__(**kwargs)
-
-        # Set up the RabbitMQ stuff
-        self.connection = pika.BlockingConnection(pika.ConnectionParameters(host=args.host, port=args.port))
-
-        channel = self.connection.channel()
-
-        channel.exchange_declare(exchange='topic_server',
-                                 type='topic')
-
-        result = channel.queue_declare(exclusive=True)
-        queue_name = result.method.queue
-
-        channel.queue_bind(exchange='topic_server',
-                           queue=queue_name,
-                           routing_key=key)
-
-        channel.basic_consume(self.callback,
-                              queue=queue_name,
-                              no_ack=True)
-
-        # And now the thread logic
-        self.external_callback = callback
-        self._is_running = True
-        self.start()
-
-    def run(self):
-        while self._is_running:
-            self.connection.process_data_events()
-
-    def exit(self):
-        self._is_running = False
-        self.connection.close()
-
-    def callback(self, ch, method, props, body):
-        """
-        Override this
-        """
-        pass
-
-
 class GlobalListener(BaseListener):
 
     def __init__(self, args, callback):
@@ -199,3 +148,37 @@ class PlayerListener(BaseListener):
 
     def callback(self, ch, method, props, body):
         self.external_callback(**json.loads(body))
+
+
+class PlayerAnnouncements(Thread):
+    """
+    Thread for sending server name to *.info queue, needed in order to check whether server is online or not
+    """
+    def __init__(self, player_name, args):
+        """
+        Publish server's name after every second in order to show that server is active.
+        @param player_name:
+        @type player_name: str
+        @param args:
+        """
+        super(PlayerAnnouncements, self).__init__()
+        self.player_name = player_name
+
+        # Set up the RabbitMQ stuff
+        self.connection = pika.BlockingConnection(pika.ConnectionParameters(host=args.host, port=args.port))
+
+        self.channel = self.connection.channel()
+        self.channel.exchange_declare(exchange='topic_server',
+                                      type='topic')
+        self._is_running = True
+
+    def run(self):
+        while self._is_running:
+            print "Publish activity"
+            self.channel.basic_publish(exchange='topic_server', routing_key='players.info',
+                                       body=self.server_name)
+            time.sleep(1)
+
+    def exit(self):
+        self._is_running = False
+        self.connection.close()

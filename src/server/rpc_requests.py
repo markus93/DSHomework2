@@ -1,4 +1,5 @@
-# Handles RPC requests, publishes necessary info to MQ-s based on requests, times out player turn
+# Handles RPC requests, publishes necessary info to MQ-s based on requests,
+# times out player turn and checks for activity
 
 # Import
 
@@ -55,6 +56,13 @@ def publish_to_topic(ch, key, rsp):
 
     ch.basic_publish(exchange='topic_server', routing_key=key,
                      body=response)
+
+
+def check_player_activity(players):
+    # TODO remove user from connected users list, from lobby (in_game=false) or make inactive
+    print "Check player activity"
+    for player in players:
+        print player
 
 
 def on_request_connect(ch, method, props, body):
@@ -481,7 +489,7 @@ def on_request_start_game(ch, method, props, body):
 
                 # start timing out player turns if haven't got response from them in 10 seconds
                 thread_timer = CheckTurnTime(SERVER_NAME, ch, sess)
-                # thread_timer.start()  # TODO test timer thread
+                thread_timer.start()  # TODO test timer thread
                 TIMER_THREADS[session_name] = thread_timer
 
                 print("User \"%s\" started game successfully on session %s." % (user_name, session_name))
@@ -527,8 +535,10 @@ def on_request_shoot(ch, method, props, body):
 
         print("%s taking shot at %s on %s" % (user_name, str(coords), session_name))
 
+        err = ""
+        res = 0
+
         if user_name in connected_users and session_name in SESSIONS:
-            err = ""
             sess = SESSIONS[session_name]
 
             if sess.next_shot_by == user_name:
@@ -630,9 +640,11 @@ class CheckTurnTime(Thread):
             if self.sess.in_game:
                 if time() - self.turn_start_time >= self.turn_time:
                     print("Player didn't send response in time (10 seconds)")
+                    current_player = self.sess.next_shot_by
                     next_player = self.sess.get_next_player()
                     publish_to_topic(self.channel, '%s.%s.info' % (SERVER_NAME, self.sess.session_name),
-                                     {'msg': "%s's turn." % next_player, 'next': next_player})  # 'coords' not sent
+                                     {'msg': "%s failed to take shot in time. %s's turn."
+                                             % (current_player, next_player), 'next': next_player})  # 'coords' not sent
                     self.turn_start_time = time()
             else:
                 self._is_running = False
