@@ -27,7 +27,7 @@ class RootWindow(Tkinter.Tk, object):
         self.game_frame = GameFrame(self)
 
         # Setup connections
-        self.rpc = RPCClient(args)
+        self.rpc = RPCClient(args, self)
         self.global_listener = GlobalListener(args, self.server_selection_frame.update_servers_list)
         self.server_listener = None
         self.game_listener = None
@@ -200,25 +200,31 @@ class RootWindow(Tkinter.Tk, object):
 
             return True
 
-    def leave_game(self):
+    def leave_game(self, connected=True):
         """
         Leave the game session.
+
+        Args:
+            connected (bool): if not connected, then don't have to ask the server anything.
 
         Returns:
             bool: True if operation was a success, False on error
         """
 
-        if not self.game_frame.game_over:
+        connected = connected or not self.game_frame.game_over
+
+        if connected:
             response = self.rpc.leave_session(user=self.player_name, sname=self.game_name)
 
-        if not self.game_frame.game_over and response['err']:
+        if connected and response['err']:
             tkMessageBox.showerror('Error', response['err'])
             return False
         else:
             self.show_frame(self.lobby_frame)
 
-            self.game_listener.exit()
-            self.game_listener = None
+            if self.game_listener is not None:
+                self.game_listener.exit()
+                self.game_listener = None
 
             if self.player_listener is not None:
                 self.player_listener.exit()
@@ -557,6 +563,10 @@ class GameSetupFrame(BaseGameFrame):
         self.game_size = game_size
         self.map_pieces = map_pieces
         self.game_owner = owner
+
+        self.ship_coords = []
+        self.players_list = []
+
         self.init_field()
 
     def init_field(self):
@@ -694,6 +704,7 @@ class GameSetupFrame(BaseGameFrame):
             # Start playing the actual game.
             self.parent.begin(players_list=self.players_list, next_player=kwargs['next'], my_ships=self.ship_coords,
                               map_pieces=self.map_pieces)
+
             return
 
         # Edit the actual listbox
@@ -885,7 +896,7 @@ class GameFrame(BaseGameFrame):
                 player_name += ' (shooting)'
 
             if player['gameover']:
-                player_name += ' (lost)'
+                player_name += ' (game over)'
 
             self.players_listbox.insert(Tkinter.END, player_name)
 

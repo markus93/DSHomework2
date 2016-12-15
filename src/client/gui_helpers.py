@@ -184,7 +184,7 @@ class GameSquare(Tkinter.Button, object):
             owner (bool): True if you are owner, false otherwise
             command (func): on_click handler
         """
-        super(GameSquare, self).__init__(parent, height=1, width=1, command=command,
+        super(GameSquare, self).__init__(parent, height=1, width=1, command=command, foreground='white',
                                          state=Tkinter.DISABLED, highlightbackground='blue')
 
         self.owner = owner

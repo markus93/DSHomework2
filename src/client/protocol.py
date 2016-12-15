@@ -10,7 +10,7 @@ CONNECTION_TIMEOUT = 3
 
 class RPCClient(object):
 
-    def __init__(self, args):
+    def __init__(self, args, parent):
         """
         This class handles the RPC part. Any method called on this is sent to the server and the response is given.
         """
@@ -30,6 +30,8 @@ class RPCClient(object):
 
         self.response = None
         self.corr_id = 0
+
+        self.parent = parent
 
         self.timer = None
         self.keep_connection_open()
@@ -68,7 +70,12 @@ class RPCClient(object):
                 if start_time + CONNECTION_TIMEOUT < time.time():
                     return {'err': 'Connection timed out'}
 
-            return json.loads(self.response)
+            response = json.loads(self.response)
+
+            if response.get('reconnect', False):
+                self.parent.leave_game(connected=False)
+
+            return response
 
         return remote_method
 
