@@ -209,7 +209,7 @@ def on_request_join_session(ch, method, props, body):
     # response to player
     if err == "" and sess.in_game:  # reconnecting user
         publish(ch, method, props, {'err': err, 'map': map_pieces, 'battlefield': battlefield,
-                                    'next': sess.next_shot_by})
+                                    'next': sess.next_shot_by, 'player_list': sess.players})
 
     elif err == "" and user_name in sess.players:  # means player joined successfully
         other_players = sess.players[:]
@@ -275,7 +275,7 @@ def on_request_leave_session(ch, method, props, body):
             else:
                 print("User was not in players list!")
         elif user_name not in connected_users:
-            err = "Username \"%s\" is not in connected users list" % user_name
+            err = "Timed out from game session!"
             connected_users.append(user_name)
             reconnected = True
             print "Put user %s back to players list" % user_name
@@ -327,7 +327,7 @@ def on_request_send_ship_placement(ch, method, props, body):
                 print(err)
 
         elif user_name not in connected_users:
-            err = "Username \"%s\" is not in connected users list" % user_name
+            err = "Timed out from game session!"
             connected_users.append(user_name)
             reconnected = True
             print "Put user %s back to players list" % user_name
@@ -381,7 +381,7 @@ def on_request_ready(ch, method, props, body):
 
             print("User \"%s\" set successfully ready state" % user_name)
         elif user_name not in connected_users:
-            err = "Username \"%s\" is not in connected users list" % user_name
+            err = "Timed out from game session!"
             connected_users.append(user_name)
             reconnected = True
             print "Put user %s back to players list" % user_name
@@ -444,7 +444,7 @@ def on_request_start_game(ch, method, props, body):
                                  {'msg': ("%s tried to start game - " % user_name) + err})
 
         elif user_name not in connected_users:
-            err = "Username \"%s\" is not in connected users list" % user_name
+            err = "Timed out from game session!"
             connected_users.append(user_name)
             reconnected = True
             print "Put user %s back to players list" % user_name
@@ -534,7 +534,7 @@ def on_request_shoot(ch, method, props, body):
                 print(err + " " + user_name)
 
         elif user_name not in connected_users:
-            err = "Username \"%s\" is not in connected users list, put back to list" % user_name
+            err = "Timed out from game session!"
             print(err)
             connected_users.append(user_name)
             reconnected = True
