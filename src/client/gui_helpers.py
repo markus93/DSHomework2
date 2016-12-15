@@ -219,3 +219,6 @@ class GameSquare(Tkinter.Button, object):
     def sunk(self):
         self.configure(text=u'\u2573')
         self.damaged = True
+
+        if not self.ship:
+            self.make_ship()

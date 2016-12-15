@@ -715,7 +715,7 @@ class GameFrame(BaseGameFrame):
 
         # Define and position the widgets
 
-        self.messages_listbox = Tkinter.Listbox(self, selectmode=Tkinter.SINGLE)
+        self.messages_listbox = Tkinter.Listbox(self, selectmode=Tkinter.SINGLE, width=50)
         self.messages_listbox.grid(row=1, column=SQUARES_IN_A_ROW * (SQUARE_SIDE_LENGTH + SQUARE_BUFFER_SIZE) + 1,
                                    rowspan=10, sticky=Tkinter.N)
 
@@ -838,7 +838,7 @@ class GameFrame(BaseGameFrame):
 
         self.update_players_list()
 
-    def update_player_info(self, spec_field=None, **kwargs):
+    def update_player_info(self, spec_field=None, msg=None, **kwargs):
         """
         Updates that are directed to single player
 
@@ -851,7 +851,18 @@ class GameFrame(BaseGameFrame):
             **kwargs:
         """
 
-        print(kwargs)
+        if spec_field is not None:
+            for x in self.xs:
+                for y in self.ys:
+
+                    if spec_field[y][x] in (1, 2):
+                        self.game_field[y][x].make_ship()
+
+                    if spec_field[y][x] == 1:
+                        self.game_field[y][x].hit()
+
+        if msg is not None:
+            self.add_message(msg)
 
     def update_players_list(self):
         """
@@ -881,4 +892,4 @@ class GameFrame(BaseGameFrame):
         self.messages_listbox.insert(0, msg)
 
 
-#TODO: active=False, restart game, disconnect - reconnect ('inactive')
+#TODO: restart game, disconnect - reconnect ('inactive')
